@@ -51,6 +51,7 @@ st.markdown("""
 # ==========================================
 SUPABASE_URL = "https://igvireifhqgotfrfamvs.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlndmlyZWlmaHFnb3RmcmZhbXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2ODE3MTcsImV4cCI6MjEwMzI1NzcxN30.UN_KFNPPgrf4TIIcqWHAENaOIFhCCYsWxSnJcngRZ_0"
+
 def get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -80,7 +81,7 @@ def obtener_o_inicializar_productos():
         return []
 
 # ==========================================
-# GENERADOR DE PDF (Facturas y Presupuestos)
+# GENERADOR DE PDF
 # ==========================================
 class InvoicePDF(FPDF):
     def header(self):
@@ -182,7 +183,7 @@ def generar_pdf_documento(registro_info):
     
     return bytes(pdf.output())
 
-def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas):
+def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas, total_final_custom=None):
     pdf = InvoicePDF()
     pdf.doc_title = "PRESUPUESTO"
     pdf.add_page()
@@ -218,24 +219,26 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     pdf.cell(35, 8, "Total", border=1, align="R", fill=True, ln=True)
     
     pdf.set_font("Helvetica", "", 9)
-    total_presupuesto = 0.0
+    total_calculado = 0.0
     for item in items:
         prod = item["producto"]
         cant = item["cantidad"]
         pu = float(item["precio_unitario"])
         subtotal = cant * pu
-        total_presupuesto += subtotal
+        total_calculado += subtotal
         
         pdf.cell(95, 8, prod, border=1)
         pdf.cell(25, 8, str(cant), border=1, align="C")
         pdf.cell(35, 8, f"{pu:,.2f} EUR", border=1, align="R")
         pdf.cell(35, 8, f"{subtotal:,.2f} EUR", border=1, align="R", ln=True)
         
+    total_imprimir = total_final_custom if total_final_custom is not None else total_calculado
+
     pdf.ln(6)
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(120, 8, "", ln=False)
     pdf.cell(35, 8, "TOTAL ESTIMADO:", ln=False)
-    pdf.cell(35, 8, f"{total_presupuesto:,.2f} EUR", align="R", ln=True)
+    pdf.cell(35, 8, f"{total_imprimir:,.2f} EUR", align="R", ln=True)
     
     if notas:
         pdf.ln(8)
@@ -332,7 +335,7 @@ if menu == "📊 Dashboard KPI":
         st.error(f"Error al cargar datos del Dashboard: {err}")
 
 # ==========================================
-# SECCIÓN: ANALÍTICA Y GRÁFICAS AVANZADAS
+# SECCIÓN: ANALÍTICA Y GRÁFICAS
 # ==========================================
 elif menu == "📈 Analítica y Gráficas":
     st.title("📈 Analítica Visual y Rendimiento")
@@ -417,7 +420,7 @@ elif menu == "📈 Analítica y Gráficas":
 # ==========================================
 elif menu == "📋 Presupuestos":
     st.title("📋 Módulo de Presupuestos y Catálogo")
-    st.markdown("Genera presupuestos con la fecha de emisión e independízate agregando nuevos productos al catálogo.")
+    st.markdown("Añade/elimina ítems libremente y decide el precio final exacto de cada presupuesto.")
     st.markdown("---")
 
     tab_crear, tab_catalogo, tab_historial = st.tabs(["⚡ Crear Presupuesto", "📦 Gestión de Productos / Catálogo", "📄 Historial Presupuestos"])
@@ -447,7 +450,7 @@ elif menu == "📋 Presupuestos":
                     validez = st.number_input("Validez (Días)", min_value=1, value=15)
 
                 st.markdown("---")
-                st.subheader("🛠️ Seleccionar Equipamientos / Productos")
+                st.subheader("🛠️ Añadir Líneas al Presupuesto")
 
                 col_i1, col_i2, col_i3, col_i4 = st.columns([3, 1, 1.5, 1])
                 with col_i1:
@@ -459,7 +462,7 @@ elif menu == "📋 Presupuestos":
                     precio_unitario = st.number_input("Precio Unitario (€)", min_value=0.0, value=precio_def, step=10.0, format="%.2f")
                 with col_i4:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("➕ Añadir", use_container_width=True):
+                    if st.button("➕ Añadir Línea", use_container_width=True):
                         st.session_state.items_presupuesto.append({
                             "producto": prod_sel,
                             "cantidad": cant_prod,
@@ -468,20 +471,61 @@ elif menu == "📋 Presupuestos":
                         })
                         st.rerun()
 
+                # MOSTRAR LÍNEAS CON OPCIÓN DE QUITAR LÍNEA INDIVIDUAL
                 if st.session_state.items_presupuesto:
-                    st.markdown("#### Lista de Ítems del Presupuesto")
-                    df_pres = pd.DataFrame(st.session_state.items_presupuesto)
-                    st.dataframe(df_pres, use_container_width=True)
+                    st.markdown("#### Ítems Añadidos:")
+                    
+                    # Encabezados de tabla interactiva
+                    h_col1, h_col2, h_col3, h_col4, h_col5 = st.columns([3, 1, 1.5, 1.5, 0.8])
+                    h_col1.markdown("**Producto / Descripción**")
+                    h_col2.markdown("**Cantidad**")
+                    h_col3.markdown("**Precio Un.**")
+                    h_col4.markdown("**Subtotal**")
+                    h_col5.markdown("**Acción**")
 
-                    total_presupuesto = df_pres["subtotal"].sum()
-                    st.success(f"💰 **Total Presupuesto:** `{total_presupuesto:,.2f} €`")
+                    total_suma_lineas = 0.0
+                    indices_a_borrar = []
+
+                    for idx, item in enumerate(st.session_state.items_presupuesto):
+                        c1, c2, c3, c4, c5 = st.columns([3, 1, 1.5, 1.5, 0.8])
+                        c1.text(item["producto"])
+                        c2.text(str(item["cantidad"]))
+                        c3.text(f"{item['precio_unitario']:,.2f} €")
+                        c4.text(f"{item['subtotal']:,.2f} €")
+                        
+                        total_suma_lineas += item["subtotal"]
+                        
+                        # Botón para borrar línea individual
+                        if c5.button("❌", key=f"del_line_{idx}"):
+                            indices_a_borrar.append(idx)
+
+                    if indices_a_borrar:
+                        for index in sorted(indices_a_borrar, reverse=True):
+                            st.session_state.items_presupuesto.pop(index)
+                        st.rerun()
+
+                    st.markdown("---")
+                    
+                    # AJUSTE MANUAL DEL MONTO FINAL
+                    col_tot1, col_tot2 = st.columns([2, 2])
+                    with col_tot1:
+                        st.markdown(f"📊 **Suma de Líneas:** `{total_suma_lineas:,.2f} €`")
+                        usar_total_custom = st.checkbox("¿Fijar un Precio Final Personalizado diferente?", value=False)
+                    
+                    with col_tot2:
+                        if usar_total_custom:
+                            total_final_presupuesto = st.number_input("Precio Final Ajustado (€)", min_value=0.0, value=total_suma_lineas, step=10.0, format="%.2f")
+                        else:
+                            total_final_presupuesto = total_suma_lineas
+
+                    st.success(f"💰 **Total Final del Presupuesto:** `{total_final_presupuesto:,.2f} €`")
 
                     col_b1, col_b2 = st.columns(2)
                     with col_b1:
-                        notas = st.text_area("Notas o Condiciones del Presupuesto", "Ejemplo: Transporte e instalación incluidos. Validez 15 días.")
+                        notas = st.text_area("Notas / Condiciones", "Ejemplo: Transporte e instalación incluidos. Validez 15 días.")
                     with col_b2:
                         st.markdown("<br>", unsafe_allow_html=True)
-                        if st.button("🗑️ Limpiar Ítems", use_container_width=True):
+                        if st.button("🗑️ Limpiar Todo", use_container_width=True):
                             st.session_state.items_presupuesto = []
                             st.rerun()
 
@@ -495,10 +539,11 @@ elif menu == "📋 Presupuestos":
                             num_presupuesto=num_pres_code,
                             fecha_generacion=fecha_pres,
                             validez_dias=validez,
-                            notas=notas
+                            notas=notas,
+                            total_final_custom=total_final_presupuesto
                         )
 
-                        if st.button("💾 Guardar en Sistema y Preparar PDF", use_container_width=True):
+                        if st.button("💾 Guardar en Historial y Preparar PDF", use_container_width=True):
                             try:
                                 data_pres = {
                                     "numero_presupuesto": num_pres_code,
@@ -506,11 +551,11 @@ elif menu == "📋 Presupuestos":
                                     "fecha_emision": str(fecha_pres),
                                     "validez_dias": validez,
                                     "items": st.session_state.items_presupuesto,
-                                    "total": total_presupuesto,
+                                    "total": total_final_presupuesto,
                                     "notas": notas
                                 }
                                 supabase.table("presupuestos").insert(data_pres).execute()
-                                st.success("¡Presupuesto guardado con éxito!")
+                                st.success("¡Presupuesto guardado en la base de datos!")
                             except Exception as ex:
                                 st.warning(f"Aviso al guardar en BD: {ex}")
 
@@ -556,7 +601,7 @@ elif menu == "📋 Presupuestos":
             df_prods = pd.DataFrame(prods_db)
             st.dataframe(df_prods[["id", "nombre", "precio"]], use_container_width=True)
             
-            st.markdown("##### 🗑️ Eliminar Producto")
+            st.markdown("##### 🗑️ Eliminar Producto del Catálogo")
             prod_a_eliminar = st.selectbox("Seleccionar producto a eliminar", [p["nombre"] for p in prods_db])
             if st.button("Eliminar del Catálogo"):
                 p_obj = next((p for p in prods_db if p["nombre"] == prod_a_eliminar), None)
@@ -597,7 +642,8 @@ elif menu == "📋 Presupuestos":
                         num_presupuesto=p_selected["numero_presupuesto"],
                         fecha_generacion=p_selected["fecha_emision"],
                         validez_dias=p_selected["validez_dias"],
-                        notas=p_selected.get("notas", "")
+                        notas=p_selected.get("notas", ""),
+                        total_final_custom=p_selected["total"]
                     )
                     st.download_button(
                         label=f"📥 Re-descargar {pres_sel_code}.pdf",
