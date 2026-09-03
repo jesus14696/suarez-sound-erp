@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
@@ -68,7 +69,6 @@ try:
 except Exception as e:
     st.error(f"Error de conexión con Supabase: {e}")
 
-# Carga inicial de catálogo de productos
 def obtener_o_inicializar_productos():
     try:
         res = supabase.table("productos").select("id, nombre").order("id").execute()
@@ -93,27 +93,46 @@ def obtener_o_inicializar_productos():
         return []
 
 # ==========================================
-# GENERADOR DE PDF
+# GENERADOR DE PDF CON LOGO EN LA PARTE SUPERIOR DERECHA
 # ==========================================
 class InvoicePDF(FPDF):
     def header(self):
-        self.set_font("Helvetica", "B", 20)
+        # 1. Buscar la imagen del logo en el directorio local
+        logo_path = None
+        for ext in ["logo.png", "logo.jpg", "logo.jpeg"]:
+            if os.path.exists(ext):
+                logo_path = ext
+                break
+
+        # 2. Posicionar logo en la parte superior derecha
+        if logo_path:
+            self.image(logo_path, x=160, y=8, w=35)
+
+        # 3. Datos del Emisor (Izquierda)
+        self.set_x(10)
+        self.set_font("Helvetica", "B", 18)
         self.set_text_color(30, 41, 59)
-        self.cell(110, 10, "SUAREZ SOUND", ln=False)
-        self.set_font("Helvetica", "B", 14)
-        self.set_text_color(37, 99, 235)
-        self.cell(80, 10, getattr(self, 'doc_title', 'COMPROBANTE'), ln=True, align="R")
+        self.cell(110, 8, "SUAREZ SOUND", ln=True)
         
         self.set_font("Helvetica", "", 9)
         self.set_text_color(100, 116, 139)
-        self.cell(110, 5, "Servicios Profesionales de Sonido e Iluminacion", ln=True)
-        self.ln(10)
+        self.cell(110, 5, "Sonido e Iluminacion | Instagram: @suarez_sound", ln=True)
+        
+        self.ln(3)
+
+        # 4. Título del Documento
+        self.set_font("Helvetica", "B", 13)
+        self.set_text_color(37, 99, 235)
+        doc_title = getattr(self, 'doc_title', 'COMPROBANTE')
+        self.cell(0, 8, doc_title, ln=True, align="R")
+        
+        self.ln(8)
 
     def footer(self):
         self.set_y(-15)
         self.set_font("Helvetica", "I", 8)
         self.set_text_color(148, 163, 184)
-        self.cell(0, 10, "Suarez Sound S.L. - Gracias por confiar en nuestros servicios.", align="C")
+        self.cell(0, 10, "Suarez Sound - Tel: 633 61 08 28 / 669 87 90 78", align="C")
 
 def generar_pdf_documento(registro_info):
     num_doc = registro_info.get("numero_factura", "DOC-0000")
@@ -142,10 +161,10 @@ def generar_pdf_documento(registro_info):
     pdf.cell(95, 5, "Suarez Sound S.L.", ln=False)
     pdf.cell(95, 5, f"{nombre_cliente}", ln=True)
     
-    pdf.cell(95, 5, "NIF: B-12345678", ln=False)
+    pdf.cell(95, 5, "Tel: 633 61 08 28 / 669 87 90 78", ln=False)
     pdf.cell(95, 5, f"DNI/NIF: {nif_cliente}", ln=True)
     
-    pdf.cell(95, 5, "info@suarezsound.com", ln=False)
+    pdf.cell(95, 5, "IG: @suarez_sound", ln=False)
     pdf.cell(95, 5, f"Email: {email_cliente}", ln=True)
     
     pdf.cell(95, 5, "", ln=False)
@@ -211,9 +230,9 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     pdf.cell(95, 5, "Suarez Sound S.L.", ln=False)
     pdf.cell(95, 5, f"{cliente_nombre}", ln=True)
     
-    pdf.cell(95, 5, "NIF: B-12345678", ln=False)
+    pdf.cell(95, 5, "Tel: 633 61 08 28 / 669 87 90 78", ln=False)
     pdf.cell(95, 5, f"DNI/NIF: {cliente_nif or 'No especificado'}", ln=True)
-    pdf.cell(95, 5, "info@suarezsound.com", ln=True)
+    pdf.cell(95, 5, "IG: @suarez_sound", ln=True)
     
     pdf.ln(8)
     pdf.set_font("Helvetica", "B", 10)
@@ -266,15 +285,16 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
 # ==========================================
 st.sidebar.markdown("<h2 style='text-align: center; color: #818cf8;'>🔊 Suárez Sound</h2>", unsafe_allow_html=True)
 
-# Sección de Carga de Logo en la barra lateral
 st.sidebar.markdown("---")
 st.sidebar.markdown("**🖼️ Logo de la Empresa**")
 uploaded_logo = st.sidebar.file_uploader("Subir logo para la interfaz", type=["png", "jpg", "jpeg", "svg"])
 
 if uploaded_logo is not None:
     st.sidebar.image(uploaded_logo, use_container_width=True)
+    with open("logo.png", "wb") as f:
+        f.write(uploaded_logo.getbuffer())
 else:
-    st.sidebar.caption("Sube el logo de tu colega/empresa para visualizarlo aquí.")
+    st.sidebar.caption("Sube el logo de la empresa para guardarlo en PDF e interfaz.")
 
 st.sidebar.markdown("---")
 menu = st.sidebar.radio(
@@ -361,8 +381,8 @@ if menu == "📊 Dashboard KPI":
 # SECCIÓN: CALENDARIO DE EVENTOS
 # ==========================================
 elif menu == "📅 Calendario Eventos":
-    st.title("📅 Calendario de Eventos y Reservas")
-    st.markdown("Consulta la disponibilidad de fechas y revisa los servicios programados.")
+    st.title("📅 Calendario de Eventos")
+    st.markdown("Consulta qué eventos hay agendados por fecha.")
     st.markdown("---")
 
     try:
@@ -374,22 +394,22 @@ elif menu == "📅 Calendario Eventos":
             col_c1, col_c2 = st.columns([1, 2])
             
             with col_c1:
-                st.subheader("🔍 Consultar Disponibilidad de Fecha")
-                fecha_busqueda = st.date_input("Seleccionar día para consultar", value=date.today())
+                st.subheader("📅 Consultar Fecha")
+                fecha_busqueda = st.date_input("Seleccionar día", value=date.today())
                 fecha_str = str(fecha_busqueda)
                 
                 eventos_dia = df_eventos[df_eventos["fecha_emision"] == fecha_str]
                 
                 if not eventos_dia.empty:
-                    st.error(f"⚠️ **FECHA OCUPADA:** Hay {len(eventos_dia)} evento(s) o servicio(s) el {fecha_busqueda.strftime('%d/%m/%Y')}:")
+                    st.markdown(f"### Eventos para el {fecha_busqueda.strftime('%d/%m/%Y')}:")
                     for _, row in eventos_dia.iterrows():
                         cli_nom = row["clientes"]["nombre"] if row.get("clientes") else "Sin Cliente"
-                        st.markdown(f"- **{row['numero_factura']}** | {cli_nom} ({row['total']:,.2f} €)")
+                        st.info(f"📌 **{cli_nom}**\n\n- **Código:** {row['numero_factura']}\n- **Importe:** {row['total']:,.2f} €\n- **Estado:** {row['estado']}")
                 else:
-                    st.success(f"✅ **FECHA DISPONIBLE:** No hay eventos registrados para el {fecha_busqueda.strftime('%d/%m/%Y')}.")
+                    st.write(f"No hay eventos programados para el {fecha_busqueda.strftime('%d/%m/%Y')}.")
 
             with col_c2:
-                st.subheader("📋 Lista de Eventos / Reservas Programadas")
+                st.subheader("📋 Próximos Eventos")
                 
                 for idx, row in df_eventos.iterrows():
                     cli_info = row.get("clientes") or {}
@@ -415,10 +435,10 @@ elif menu == "📅 Calendario Eventos":
                     </div>
                     """, unsafe_allow_html=True)
         else:
-            st.info("No hay eventos ni servicios registrados en el calendario todavía.")
+            st.info("No hay eventos registrados.")
             
     except Exception as err:
-        st.error(f"Error al cargar el calendario de eventos: {err}")
+        st.error(f"Error al cargar el calendario: {err}")
 
 # ==========================================
 # SECCIÓN: ANALÍTICA Y GRÁFICAS
@@ -496,13 +516,13 @@ elif menu == "📈 Analítica y Gráficas":
                 st.bar_chart(df_top_clientes)
 
         else:
-            st.info("Aún no existen suficientes datos de facturas o gastos registrados para generar las gráficas.")
+            st.info("Aún no existen suficientes datos de facturas o gastos registrados.")
 
     except Exception as err:
         st.error(f"Error procesando la analítica: {err}")
 
 # ==========================================
-# SECCIÓN: PRESUPUESTOS (CON CONVERSIÓN A FACTURA/PROFORMA)
+# SECCIÓN: PRESUPUESTOS
 # ==========================================
 elif menu == "📋 Presupuestos":
     st.title("📋 Módulo de Presupuestos y Catálogo")
@@ -511,7 +531,6 @@ elif menu == "📋 Presupuestos":
 
     tab_crear, tab_historial, tab_catalogo = st.tabs(["⚡ Crear Presupuesto", "📄 Historial y Estados", "📦 Catálogo de Productos"])
 
-    # 1. GENERAR PRESUPUESTO
     with tab_crear:
         try:
             res_clientes = supabase.table("clientes").select("id, nombre, nif").order("nombre").execute()
@@ -605,7 +624,7 @@ elif menu == "📋 Presupuestos":
 
                     col_b1, col_b2 = st.columns(2)
                     with col_b1:
-                        notas = st.text_area("Notas / Condiciones", "Ejemplo: Transporte e instalación incluidos. Validez 15 días.")
+                        notas = st.text_area("Notas / Condiciones", "Transporte e instalación incluidos. Validez 15 días.")
                     with col_b2:
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("🗑️ Limpiar Todo", use_container_width=True):
@@ -657,7 +676,6 @@ elif menu == "📋 Presupuestos":
         except Exception as err:
             st.error(f"Error generando presupuesto: {err}")
 
-    # 2. HISTORIAL Y CONVERSIÓN A FACTURA/PROFORMA
     with tab_historial:
         st.subheader("📄 Historial y Control de Estados")
         try:
@@ -697,7 +715,7 @@ elif menu == "📋 Presupuestos":
                     
                     tipo_doc_aceptado = "No (Proforma / Recibo sin IVA)"
                     if nuevo_estado_p == "Aceptado":
-                        st.info("🎉 ¡Presupuesto Aceptado! Elige cómo deseas registrarlo:")
+                        st.info("Presupuesto Aceptado. Elige cómo deseas registrarlo:")
                         tipo_doc_aceptado = st.radio(
                             "¿Cómo vas a emitir este trabajo?",
                             ["No (Proforma / Recibo sin IVA)", "Sí (Factura Oficial + 21% IVA)"],
@@ -708,7 +726,7 @@ elif menu == "📋 Presupuestos":
                         try:
                             supabase.table("presupuestos").update({"estado": nuevo_estado_p}).eq("numero_presupuesto", pres_sel_code).execute()
                         except Exception:
-                            st.warning("⚠️ La columna 'estado' aún no existe en Supabase.")
+                            st.warning("La columna 'estado' aún no existe en Supabase.")
                         
                         st.success(f"Presupuesto {pres_sel_code} cambiado a '{nuevo_estado_p}'.")
                         
@@ -749,7 +767,7 @@ elif menu == "📋 Presupuestos":
                                     }
                                     
                                 supabase.table("facturas").insert(data_fac_auto).execute()
-                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado y registrado en 'Historial Trabajos'!")
+                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado y registrado!")
                         st.rerun()
 
                 with col_e2:
@@ -779,11 +797,10 @@ elif menu == "📋 Presupuestos":
         except Exception as err:
             st.error(f"Error consultando historial: {err}")
 
-    # 3. GESTIÓN DEL CATÁLOGO
     with tab_catalogo:
         st.subheader("➕ Añadir Nuevo Producto / Servicio al Catálogo")
         with st.form("nuevo_producto_form", clear_on_submit=True):
-            nuevo_prod_nombre = st.text_input("Nombre / Descripción del Producto o Servicio *", placeholder="Ej. Iluminación LED Robótica, Escenario 4x3...")
+            nuevo_prod_nombre = st.text_input("Nombre / Descripción del Producto o Servicio *")
             sub_prod = st.form_submit_button("Guardar en Catálogo")
             if sub_prod:
                 if not nuevo_prod_nombre:
@@ -865,7 +882,7 @@ elif menu == "👤 CRM Clientes":
 # ==========================================
 elif menu == "➕ Registros / Facturas":
     st.title("➕ Crear Registro de Servicio / Factura")
-    st.markdown("Registra un trabajo para un cliente calculando IVA solo cuando se requiera factura oficial.")
+    st.markdown("Registra un trabajo para un cliente.")
     st.markdown("---")
     
     try:
@@ -921,7 +938,7 @@ elif menu == "➕ Registros / Facturas":
                         "estado": estado_inicial
                     }
                     supabase.table("facturas").insert(data_factura).execute()
-                    st.success(f"Registro '{num_final}' guardado con éxito por un total de {total_calculado:,.2f} €.")
+                    st.success(f"Registro '{num_final}' guardado por un total de {total_calculado:,.2f} €.")
                     st.rerun()
 
     except Exception as err:
