@@ -93,22 +93,19 @@ def obtener_o_inicializar_productos():
         return []
 
 # ==========================================
-# GENERADOR DE PDF CON LOGO EN LA PARTE SUPERIOR DERECHA
+# GENERADOR DE PDF (CORREGIDO Y OPTIMIZADO)
 # ==========================================
 class InvoicePDF(FPDF):
     def header(self):
-        # 1. Buscar la imagen del logo en el directorio local
         logo_path = None
         for ext in ["logo.png", "logo.jpg", "logo.jpeg"]:
             if os.path.exists(ext):
                 logo_path = ext
                 break
 
-        # 2. Posicionar logo en la parte superior derecha
         if logo_path:
-            self.image(logo_path, x=160, y=8, w=35)
+            self.image(logo_path, x=150, y=8, w=45)
 
-        # 3. Datos del Emisor (Izquierda)
         self.set_x(10)
         self.set_font("Helvetica", "B", 18)
         self.set_text_color(30, 41, 59)
@@ -118,15 +115,15 @@ class InvoicePDF(FPDF):
         self.set_text_color(100, 116, 139)
         self.cell(110, 5, "Sonido e Iluminacion | Instagram: @suarez_sound", ln=True)
         
-        self.ln(3)
+        # Salto de línea para bajar el título de la proforma/factura y no solapar con el logo
+        self.ln(12)
 
-        # 4. Título del Documento
         self.set_font("Helvetica", "B", 13)
         self.set_text_color(37, 99, 235)
         doc_title = getattr(self, 'doc_title', 'COMPROBANTE')
         self.cell(0, 8, doc_title, ln=True, align="R")
         
-        self.ln(8)
+        self.ln(4)
 
     def footer(self):
         self.set_y(-15)
@@ -139,6 +136,7 @@ def generar_pdf_documento(registro_info):
     es_factura = num_doc.startswith("FAC")
     fecha = str(registro_info.get("fecha_emision", date.today()))
     total = float(registro_info.get("total", 0.0))
+    items = registro_info.get("items") or []
     
     cliente_data = registro_info.get("clientes") or {}
     nombre_cliente = cliente_data.get("nombre", "Cliente General")
@@ -177,18 +175,35 @@ def generar_pdf_documento(registro_info):
     
     pdf.set_fill_color(248, 250, 252)
     pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(140, 8, "Descripcion del Servicio", border=1, fill=True)
-    pdf.cell(50, 8, "Importe", border=1, align="R", fill=True, ln=True)
+    pdf.cell(95, 8, "Descripcion del Servicio / Producto", border=1, fill=True)
+    pdf.cell(25, 8, "Cant.", border=1, align="C", fill=True)
+    pdf.cell(35, 8, "Precio Un.", border=1, align="R", fill=True)
+    pdf.cell(35, 8, "Total", border=1, align="R", fill=True, ln=True)
     
     pdf.set_font("Helvetica", "", 9)
+    
+    if items:
+        for item in items:
+            prod = item.get("producto", "Servicio Técnico")
+            cant = item.get("cantidad", 1)
+            pu = float(item.get("precio_unitario", total))
+            subtotal = float(item.get("subtotal", cant * pu))
+            
+            pdf.cell(95, 8, prod, border=1)
+            pdf.cell(25, 8, str(cant), border=1, align="C")
+            pdf.cell(35, 8, f"{pu:,.2f} EUR", border=1, align="R")
+            pdf.cell(35, 8, f"{subtotal:,.2f} EUR", border=1, align="R", ln=True)
+    else:
+        pdf.cell(95, 8, "Servicios tecnicos de sonorizacion y montaje", border=1)
+        pdf.cell(25, 8, "1", border=1, align="C")
+        pdf.cell(35, 8, f"{total:,.2f} EUR", border=1, align="R")
+        pdf.cell(35, 8, f"{total:,.2f} EUR", border=1, align="R", ln=True)
+
+    pdf.ln(6)
     
     if es_factura:
         base_imponible = total / 1.21
         iva = total - base_imponible
-        
-        pdf.cell(140, 10, "Servicios tecnicos de sonorizacion, montaje y produccion (Con Factura)", border=1)
-        pdf.cell(50, 10, f"{base_imponible:,.2f} EUR", border=1, align="R", ln=True)
-        pdf.ln(6)
         
         pdf.cell(120, 6, "", ln=False)
         pdf.cell(35, 6, "Base Imponible:", ln=False)
@@ -203,10 +218,6 @@ def generar_pdf_documento(registro_info):
         pdf.cell(35, 8, "TOTAL FACTURA:", ln=False)
         pdf.cell(35, 8, f"{total:,.2f} EUR", align="R", ln=True)
     else:
-        pdf.cell(140, 10, "Servicios tecnicos de sonorizacion y montaje (Factura Proforma / Recibo)", border=1)
-        pdf.cell(50, 10, f"{total:,.2f} EUR", border=1, align="R", ln=True)
-        pdf.ln(6)
-        
         pdf.set_font("Helvetica", "B", 11)
         pdf.cell(120, 8, "", ln=False)
         pdf.cell(35, 8, "TOTAL NETO:", ln=False)
@@ -378,7 +389,7 @@ if menu == "📊 Dashboard KPI":
         st.error(f"Error al cargar datos del Dashboard: {err}")
 
 # ==========================================
-# SECCIÓN: CALENDARIO DE EVENTOS
+# SECCIÓN: CALENDARIO DE EVENTOS (FILTRADO DESDE DÍA ACTUAL)
 # ==========================================
 elif menu == "📅 Calendario Eventos":
     st.title("📅 Calendario de Eventos")
@@ -411,29 +422,36 @@ elif menu == "📅 Calendario Eventos":
             with col_c2:
                 st.subheader("📋 Próximos Eventos")
                 
-                for idx, row in df_eventos.iterrows():
-                    cli_info = row.get("clientes") or {}
-                    cli_nombre = cli_info.get("nombre", "Cliente General")
-                    cli_tel = cli_info.get("telefono") or "Sin teléfono"
-                    estado_pago = row["estado"]
-                    badge_color = "🟢" if estado_pago == "Cobrada" else "🟠"
-                    
-                    try:
-                        fecha_f = pd.to_datetime(row['fecha_emision']).strftime('%d/%m/%Y')
-                    except Exception:
-                        fecha_f = row['fecha_emision']
+                # FILTRAR EVENTOS: Solo desde el día actual en adelante
+                hoy_str = str(date.today())
+                df_proximos = df_eventos[df_eventos["fecha_emision"] >= hoy_str]
+                
+                if not df_proximos.empty:
+                    for idx, row in df_proximos.iterrows():
+                        cli_info = row.get("clientes") or {}
+                        cli_nombre = cli_info.get("nombre", "Cliente General")
+                        cli_tel = cli_info.get("telefono") or "Sin teléfono"
+                        estado_pago = row["estado"]
+                        badge_color = "🟢" if estado_pago == "Cobrada" else "🟠"
                         
-                    st.markdown(f"""
-                    <div class="event-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <h4 style="margin:0; color: #818cf8;">📅 {fecha_f} - {cli_nombre}</h4>
-                            <span>{badge_color} <b>{estado_pago}</b></span>
+                        try:
+                            fecha_f = pd.to_datetime(row['fecha_emision']).strftime('%d/%m/%Y')
+                        except Exception:
+                            fecha_f = row['fecha_emision']
+                            
+                        st.markdown(f"""
+                        <div class="event-card">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <h4 style="margin:0; color: #818cf8;">📅 {fecha_f} - {cli_nombre}</h4>
+                                <span>{badge_color} <b>{estado_pago}</b></span>
+                            </div>
+                            <p style="margin: 5px 0 0 0; font-size: 0.9rem; color: #cbd5e1;">
+                                <b>Código:</b> {row['numero_factura']} | <b>Importe:</b> {row['total']:,.2f} € | <b>Teléfono:</b> {cli_tel}
+                            </p>
                         </div>
-                        <p style="margin: 5px 0 0 0; font-size: 0.9rem; color: #cbd5e1;">
-                            <b>Código:</b> {row['numero_factura']} | <b>Importe:</b> {row['total']:,.2f} € | <b>Teléfono:</b> {cli_tel}
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No hay eventos próximos agendados a partir de hoy.")
         else:
             st.info("No hay eventos registrados.")
             
@@ -743,6 +761,7 @@ elif menu == "📋 Presupuestos":
                                 seq_str = f"{num_seq:04d}"
 
                                 total_presupuesto = float(p_obj["total"])
+                                items_presupuesto = p_obj.get("items") or []
                                 
                                 if "Sí" in tipo_doc_aceptado:
                                     num_doc_nuevo = f"FAC-{seq_str}"
@@ -753,7 +772,8 @@ elif menu == "📋 Presupuestos":
                                         "cliente_id": p_obj["cliente_id"],
                                         "fecha_emision": str(date.today()),
                                         "total": total_con_iva,
-                                        "estado": "Pendiente"
+                                        "estado": "Pendiente",
+                                        "items": items_presupuesto
                                     }
                                 else:
                                     num_doc_nuevo = f"REC-{seq_str}"
@@ -763,11 +783,18 @@ elif menu == "📋 Presupuestos":
                                         "cliente_id": p_obj["cliente_id"],
                                         "fecha_emision": str(date.today()),
                                         "total": total_presupuesto,
-                                        "estado": "Pendiente"
+                                        "estado": "Pendiente",
+                                        "items": items_presupuesto
                                     }
                                     
-                                supabase.table("facturas").insert(data_fac_auto).execute()
-                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado y registrado!")
+                                try:
+                                    supabase.table("facturas").insert(data_fac_auto).execute()
+                                except Exception:
+                                    # Fallback si no existe la columna items en la tabla facturas
+                                    data_fac_auto.pop("items", None)
+                                    supabase.table("facturas").insert(data_fac_auto).execute()
+
+                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado y registrado con sus productos!")
                         st.rerun()
 
                 with col_e2:
@@ -953,7 +980,10 @@ elif menu == "📄 Historial Trabajos":
     st.markdown("---")
     
     try:
-        res = supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
+        try:
+            res = supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, items, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
+        except Exception:
+            res = supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
         
         if res.data:
             raw_facturas = res.data
