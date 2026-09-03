@@ -60,7 +60,7 @@ try:
 except Exception as e:
     st.error(f"Error de conexión con Supabase: {e}")
 
-# Carga inicial de catálogo de productos (sin precios fijos)
+# Carga inicial de catálogo de productos
 def obtener_o_inicializar_productos():
     try:
         res = supabase.table("productos").select("id, nombre").order("id").execute()
@@ -420,14 +420,14 @@ elif menu == "📈 Analítica y Gráficas":
         st.error(f"Error procesando la analítica: {err}")
 
 # ==========================================
-# SECCIÓN: PRESUPUESTOS (SIN PRECIOS EN CATÁLOGO)
+# SECCIÓN: PRESUPUESTOS (CON CONVERSIÓN A FACTURA/PROFORMA)
 # ==========================================
 elif menu == "📋 Presupuestos":
     st.title("📋 Módulo de Presupuestos y Catálogo")
-    st.markdown("Selecciona o añade productos/servicios y decide el precio exacto de cada presupuesto.")
+    st.markdown("Gestiona propuestas comerciales, estados de aprobación y conversión a Factura / Proforma.")
     st.markdown("---")
 
-    tab_crear, tab_catalogo, tab_historial = st.tabs(["⚡ Crear Presupuesto", "📦 Gestión de Productos / Catálogo", "📄 Historial Presupuestos"])
+    tab_crear, tab_historial, tab_catalogo = st.tabs(["⚡ Crear Presupuesto", "📄 Historial y Estados", "📦 Catálogo de Productos"])
 
     # 1. GENERAR PRESUPUESTO
     with tab_crear:
@@ -445,13 +445,15 @@ elif menu == "📋 Presupuestos":
             else:
                 dict_clientes = {c["nombre"]: c for c in clientes}
 
-                col_p1, col_p2, col_p3 = st.columns([2, 1, 1])
+                col_p1, col_p2, col_p3, col_p4 = st.columns([2, 1, 1, 1])
                 with col_p1:
                     cliente_sel = st.selectbox("Cliente Destinatario *", list(dict_clientes.keys()))
                 with col_p2:
-                    fecha_pres = st.date_input("Fecha de Generación", value=date.today())
+                    fecha_pres = st.date_input("Fecha Generación", value=date.today())
                 with col_p3:
                     validez = st.number_input("Validez (Días)", min_value=1, value=15)
+                with col_p4:
+                    estado_inicial_pres = st.selectbox("Estado Inicial", ["Pendiente de aprobación", "Enviado", "Aceptado", "Rechazado"])
 
                 st.markdown("---")
                 st.subheader("🛠️ Añadir Líneas al Presupuesto")
@@ -474,7 +476,6 @@ elif menu == "📋 Presupuestos":
                         })
                         st.rerun()
 
-                # MOSTRAR LÍNEAS CON OPCIÓN DE QUITAR LÍNEA INDIVIDUAL
                 if st.session_state.items_presupuesto:
                     st.markdown("#### Ítems Añadidos:")
                     
@@ -552,10 +553,11 @@ elif menu == "📋 Presupuestos":
                                     "validez_dias": validez,
                                     "items": st.session_state.items_presupuesto,
                                     "total": total_final_presupuesto,
-                                    "notas": notas
+                                    "notas": notas,
+                                    "estado": estado_inicial_pres
                                 }
                                 supabase.table("presupuestos").insert(data_pres).execute()
-                                st.success("¡Presupuesto guardado en la base de datos!")
+                                st.success(f"¡Presupuesto guardado en estado '{estado_inicial_pres}'!")
                             except Exception as ex:
                                 st.warning(f"Aviso al guardar en BD: {ex}")
 
@@ -572,7 +574,125 @@ elif menu == "📋 Presupuestos":
         except Exception as err:
             st.error(f"Error generando presupuesto: {err}")
 
-    # 2. GESTIÓN DEL CATÁLOGO
+    # 2. HISTORIAL Y CONVERSIÓN A FACTURA/PROFORMA
+    with tab_historial:
+        st.subheader("📄 Historial y Control de Estados")
+        try:
+            res_p = supabase.table("presupuestos").select("id, numero_presupuesto, cliente_id, fecha_emision, total, validez_dias, notas, items, estado, clientes(nombre, nif)").order("id", desc=True).execute()
+            if res_p.data:
+                raw_p = res_p.data
+                filas_p = []
+                for p in raw_p:
+                    cliente_n = p["clientes"]["nombre"] if p.get("clientes") else "Sin Cliente"
+                    filas_p.append({
+                        "Código": p["numero_presupuesto"],
+                        "Cliente": cliente_n,
+                        "Fecha Generación": p["fecha_emision"],
+                        "Total (€)": p["total"],
+                        "Estado": p.get("estado", "Pendiente de aprobación")
+                    })
+                
+                df_pres = pd.DataFrame(filas_p)
+                
+                f_est = st.selectbox("Filtrar Historial por Estado", ["Todos", "Pendiente de aprobación", "Enviado", "Aceptado", "Rechazado"])
+                if f_est != "Todos":
+                    df_pres = df_pres[df_pres["Estado"] == f_est]
+                    
+                st.dataframe(df_pres, use_container_width=True)
+                st.markdown("---")
+                
+                col_e1, col_e2 = st.columns(2)
+                
+                with col_e1:
+                    st.subheader("🔄 Cambiar Estado de Presupuesto")
+                    pres_sel_code = st.selectbox("Seleccionar Presupuesto", [p["numero_presupuesto"] for p in raw_p], key="sel_pres_e")
+                    nuevo_estado_p = st.selectbox("Nuevo Estado", ["Pendiente de aprobación", "Enviado", "Aceptado", "Rechazado"])
+                    
+                    # SI SE SELECCIONA ACEPTADO: PREGUNTAR POR TIPO DE DOCUMENTO
+                    tipo_doc_aceptado = "No (Proforma / Recibo sin IVA)"
+                    if nuevo_estado_p == "Aceptado":
+                        st.info("🎉 ¡Presupuesto Aceptado! Elige cómo deseas registrarlo:")
+                        tipo_doc_aceptado = st.radio(
+                            "¿Cómo vas a emitir este trabajo?",
+                            ["No (Proforma / Recibo sin IVA)", "Sí (Factura Oficial + 21% IVA)"],
+                            key="rad_aceptado"
+                        )
+                    
+                    if st.button("Actualizar Estado Presupuesto", use_container_width=True):
+                        # Actualizar estado en DB
+                        supabase.table("presupuestos").update({"estado": nuevo_estado_p}).eq("numero_presupuesto", pres_sel_code).execute()
+                        st.success(f"Presupuesto {pres_sel_code} actualizado a '{nuevo_estado_p}'.")
+                        
+                        # CREAR REGISTRO SI ES ACEPTADO SEGÚN LA ELECCIÓN
+                        if nuevo_estado_p == "Aceptado":
+                            p_obj = next((p for p in raw_p if p["numero_presupuesto"] == pres_sel_code), None)
+                            if p_obj:
+                                # Obtener el último correlativo
+                                res_facturas = supabase.table("facturas").select("numero_factura").order("id", desc=True).limit(1).execute()
+                                num_seq = 1
+                                if res_facturas.data:
+                                    try:
+                                        num_seq = int(res_facturas.data[0]["numero_factura"].split("-")[1]) + 1
+                                    except Exception:
+                                        num_seq = 1
+                                seq_str = f"{num_seq:04d}"
+
+                                total_presupuesto = float(p_obj["total"])
+                                
+                                if "Sí" in tipo_doc_aceptado:
+                                    num_doc_nuevo = f"FAC-{seq_str}"
+                                    total_con_iva = total_presupuesto * 1.21
+                                    st.info(f"Generando Factura Oficial `{num_doc_nuevo}` con total de `{total_con_iva:,.2f} €` (incluye 21% IVA)...")
+                                    data_fac_auto = {
+                                        "numero_factura": num_doc_nuevo,
+                                        "cliente_id": p_obj["cliente_id"],
+                                        "fecha_emision": str(date.today()),
+                                        "total": total_con_iva,
+                                        "estado": "Pendiente"
+                                    }
+                                else:
+                                    num_doc_nuevo = f"REC-{seq_str}"
+                                    st.info(f"Generando Proforma/Recibo `{num_doc_nuevo}` con importe neto de `{total_presupuesto:,.2f} €`...")
+                                    data_fac_auto = {
+                                        "numero_factura": num_doc_nuevo,
+                                        "cliente_id": p_obj["cliente_id"],
+                                        "fecha_emision": str(date.today()),
+                                        "total": total_presupuesto,
+                                        "estado": "Pendiente"
+                                    }
+                                    
+                                supabase.table("facturas").insert(data_fac_auto).execute()
+                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado y enviado al Módulo de Trabajos!")
+                        st.rerun()
+
+                with col_e2:
+                    st.subheader("📥 Re-descargar PDF")
+                    p_selected = next((p for p in raw_p if p["numero_presupuesto"] == pres_sel_code), None)
+                    if p_selected:
+                        cli_data = p_selected.get("clientes") or {}
+                        pdf_h = generar_pdf_presupuesto(
+                            cliente_nombre=cli_data.get("nombre", "Cliente General"),
+                            cliente_nif=cli_data.get("nif", ""),
+                            items=p_selected["items"],
+                            num_presupuesto=p_selected["numero_presupuesto"],
+                            fecha_generacion=p_selected["fecha_emision"],
+                            validez_dias=p_selected["validez_dias"],
+                            notas=p_selected.get("notas", ""),
+                            total_final_custom=p_selected["total"]
+                        )
+                        st.download_button(
+                            label=f"📥 Re-descargar {pres_sel_code}.pdf",
+                            data=pdf_h,
+                            file_name=f"{pres_sel_code}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+            else:
+                st.info("Aún no se han guardado presupuestos en el historial.")
+        except Exception as err:
+            st.error(f"Error consultando historial: {err}")
+
+    # 3. GESTIÓN DEL CATÁLOGO
     with tab_catalogo:
         st.subheader("➕ Añadir Nuevo Producto / Servicio al Catálogo")
         with st.form("nuevo_producto_form", clear_on_submit=True):
@@ -606,51 +726,6 @@ elif menu == "📋 Presupuestos":
                     st.rerun()
         else:
             st.info("No hay productos en el catálogo.")
-
-    # 3. HISTORIAL DE PRESUPUESTOS
-    with tab_historial:
-        st.subheader("📄 Historial de Presupuestos Generados")
-        try:
-            res_p = supabase.table("presupuestos").select("id, numero_presupuesto, fecha_emision, total, validez_dias, notas, items, clientes(nombre, nif)").order("id", desc=True).execute()
-            if res_p.data:
-                raw_p = res_p.data
-                filas_p = []
-                for p in raw_p:
-                    cliente_n = p["clientes"]["nombre"] if p.get("clientes") else "Sin Cliente"
-                    filas_p.append({
-                        "Código": p["numero_presupuesto"],
-                        "Cliente": cliente_n,
-                        "Fecha Generación": p["fecha_emision"],
-                        "Total (€)": p["total"]
-                    })
-                st.dataframe(pd.DataFrame(filas_p), use_container_width=True)
-                
-                pres_sel_code = st.selectbox("Seleccionar Presupuesto para Re-descargar PDF", [p["numero_presupuesto"] for p in raw_p])
-                p_selected = next((p for p in raw_p if p["numero_presupuesto"] == pres_sel_code), None)
-                
-                if p_selected:
-                    cli_data = p_selected.get("clientes") or {}
-                    pdf_h = generar_pdf_presupuesto(
-                        cliente_nombre=cli_data.get("nombre", "Cliente General"),
-                        cliente_nif=cli_data.get("nif", ""),
-                        items=p_selected["items"],
-                        num_presupuesto=p_selected["numero_presupuesto"],
-                        fecha_generacion=p_selected["fecha_emision"],
-                        validez_dias=p_selected["validez_dias"],
-                        notas=p_selected.get("notas", ""),
-                        total_final_custom=p_selected["total"]
-                    )
-                    st.download_button(
-                        label=f"📥 Re-descargar {pres_sel_code}.pdf",
-                        data=pdf_h,
-                        file_name=f"{pres_sel_code}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-            else:
-                st.info("Aún no se han guardado presupuestos en el historial.")
-        except Exception as err:
-            st.error(f"Error consultando historial: {err}")
 
 # ==========================================
 # SECCIÓN: CRM CLIENTES
