@@ -60,22 +60,26 @@ try:
 except Exception as e:
     st.error(f"Error de conexión con Supabase: {e}")
 
-# Carga inicial de catálogo de productos
+# Carga inicial de catálogo de productos (sin precios fijos)
 def obtener_o_inicializar_productos():
     try:
-        res = supabase.table("productos").select("id, nombre, precio").order("id").execute()
+        res = supabase.table("productos").select("id, nombre").order("id").execute()
         if not res.data:
             prod_iniciales = [
-                {"nombre": "Producto 1: 2 Subwoofers", "precio": 150.0},
-                {"nombre": "Producto 2: 4 Subwoofers", "precio": 280.0},
-                {"nombre": "Producto 3: 6 Subwoofers", "precio": 400.0},
-                {"nombre": "Producto 4: 2 Altavoces", "precio": 120.0},
-                {"nombre": "Producto 5: 4 Altavoces", "precio": 220.0},
-                {"nombre": "Producto 6: 6 Altavoces", "precio": 320.0},
-                {"nombre": "Producto 7: Cabina DJ", "precio": 200.0}
+                {"nombre": "2 Subwoofers"},
+                {"nombre": "4 Subwoofers"},
+                {"nombre": "6 Subwoofers"},
+                {"nombre": "2 Altavoces"},
+                {"nombre": "4 Altavoces"},
+                {"nombre": "6 Altavoces"},
+                {"nombre": "Cabina DJ Complete"},
+                {"nombre": "Transporte / Desplazamiento"},
+                {"nombre": "Instalación y Montaje"},
+                {"nombre": "Desmontaje"},
+                {"nombre": "Técnico de Sonido (Jornada)"}
             ]
             supabase.table("productos").insert(prod_iniciales).execute()
-            res = supabase.table("productos").select("id, nombre, precio").order("id").execute()
+            res = supabase.table("productos").select("id, nombre").order("id").execute()
         return res.data
     except Exception:
         return []
@@ -213,7 +217,7 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     
     pdf.set_fill_color(248, 250, 252)
     pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(95, 8, "Producto / Equipamiento", border=1, fill=True)
+    pdf.cell(95, 8, "Producto / Servicio / Equipamiento", border=1, fill=True)
     pdf.cell(25, 8, "Cant.", border=1, align="C", fill=True)
     pdf.cell(35, 8, "Precio Un.", border=1, align="R", fill=True)
     pdf.cell(35, 8, "Total", border=1, align="R", fill=True, ln=True)
@@ -416,11 +420,11 @@ elif menu == "📈 Analítica y Gráficas":
         st.error(f"Error procesando la analítica: {err}")
 
 # ==========================================
-# SECCIÓN: PRESUPUESTOS (NUEVO & MEJORADO)
+# SECCIÓN: PRESUPUESTOS (SIN PRECIOS EN CATÁLOGO)
 # ==========================================
 elif menu == "📋 Presupuestos":
     st.title("📋 Módulo de Presupuestos y Catálogo")
-    st.markdown("Añade/elimina ítems libremente y decide el precio final exacto de cada presupuesto.")
+    st.markdown("Selecciona o añade productos/servicios y decide el precio exacto de cada presupuesto.")
     st.markdown("---")
 
     tab_crear, tab_catalogo, tab_historial = st.tabs(["⚡ Crear Presupuesto", "📦 Gestión de Productos / Catálogo", "📄 Historial Presupuestos"])
@@ -432,12 +436,12 @@ elif menu == "📋 Presupuestos":
             clientes = res_clientes.data
             
             lista_productos_db = obtener_o_inicializar_productos()
-            dict_productos = {p["nombre"]: float(p["precio"]) for p in lista_productos_db}
+            nombres_productos = [p["nombre"] for p in lista_productos_db]
 
             if not clientes:
                 st.warning("⚠️ Primero debes dar de alta al menos un cliente en 'CRM Clientes'.")
-            elif not dict_productos:
-                st.warning("⚠️ No hay productos disponibles en el catálogo.")
+            elif not nombres_productos:
+                st.warning("⚠️ No hay productos o servicios disponibles en el catálogo.")
             else:
                 dict_clientes = {c["nombre"]: c for c in clientes}
 
@@ -454,12 +458,11 @@ elif menu == "📋 Presupuestos":
 
                 col_i1, col_i2, col_i3, col_i4 = st.columns([3, 1, 1.5, 1])
                 with col_i1:
-                    prod_sel = st.selectbox("Seleccionar Producto", list(dict_productos.keys()))
+                    prod_sel = st.selectbox("Seleccionar Producto / Servicio", nombres_productos)
                 with col_i2:
                     cant_prod = st.number_input("Cantidad", min_value=1, value=1)
                 with col_i3:
-                    precio_def = dict_productos.get(prod_sel, 0.0)
-                    precio_unitario = st.number_input("Precio Unitario (€)", min_value=0.0, value=precio_def, step=10.0, format="%.2f")
+                    precio_unitario = st.number_input("Precio Unitario (€)", min_value=0.0, value=100.0, step=10.0, format="%.2f")
                 with col_i4:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("➕ Añadir Línea", use_container_width=True):
@@ -475,9 +478,8 @@ elif menu == "📋 Presupuestos":
                 if st.session_state.items_presupuesto:
                     st.markdown("#### Ítems Añadidos:")
                     
-                    # Encabezados de tabla interactiva
                     h_col1, h_col2, h_col3, h_col4, h_col5 = st.columns([3, 1, 1.5, 1.5, 0.8])
-                    h_col1.markdown("**Producto / Descripción**")
+                    h_col1.markdown("**Producto / Servicio**")
                     h_col2.markdown("**Cantidad**")
                     h_col3.markdown("**Precio Un.**")
                     h_col4.markdown("**Subtotal**")
@@ -495,7 +497,6 @@ elif menu == "📋 Presupuestos":
                         
                         total_suma_lineas += item["subtotal"]
                         
-                        # Botón para borrar línea individual
                         if c5.button("❌", key=f"del_line_{idx}"):
                             indices_a_borrar.append(idx)
 
@@ -506,7 +507,6 @@ elif menu == "📋 Presupuestos":
 
                     st.markdown("---")
                     
-                    # AJUSTE MANUAL DEL MONTO FINAL
                     col_tot1, col_tot2 = st.columns([2, 2])
                     with col_tot1:
                         st.markdown(f"📊 **Suma de Líneas:** `{total_suma_lineas:,.2f} €`")
@@ -576,20 +576,15 @@ elif menu == "📋 Presupuestos":
     with tab_catalogo:
         st.subheader("➕ Añadir Nuevo Producto / Servicio al Catálogo")
         with st.form("nuevo_producto_form", clear_on_submit=True):
-            col_np1, col_np2 = st.columns([3, 1])
-            with col_np1:
-                nuevo_prod_nombre = st.text_input("Nombre / Descripción del Producto *")
-            with col_np2:
-                nuevo_prod_precio = st.number_input("Precio Estándar (€)", min_value=0.0, step=10.0, format="%.2f")
-            
+            nuevo_prod_nombre = st.text_input("Nombre / Descripción del Producto o Servicio *", placeholder="Ej. Iluminación LED Robótica, Escenario 4x3...")
             sub_prod = st.form_submit_button("Guardar en Catálogo")
             if sub_prod:
                 if not nuevo_prod_nombre:
                     st.error("El nombre del producto no puede estar vacío.")
                 else:
                     try:
-                        supabase.table("productos").insert({"nombre": nuevo_prod_nombre, "precio": nuevo_prod_precio}).execute()
-                        st.success(f"Producto '{nuevo_prod_nombre}' añadido con éxito al catálogo.")
+                        supabase.table("productos").insert({"nombre": nuevo_prod_nombre}).execute()
+                        st.success(f"Servicio '{nuevo_prod_nombre}' añadido con éxito al catálogo.")
                         st.rerun()
                     except Exception as ex:
                         st.error(f"Error al guardar producto: {ex}")
@@ -599,7 +594,7 @@ elif menu == "📋 Presupuestos":
         prods_db = obtener_o_inicializar_productos()
         if prods_db:
             df_prods = pd.DataFrame(prods_db)
-            st.dataframe(df_prods[["id", "nombre", "precio"]], use_container_width=True)
+            st.dataframe(df_prods[["id", "nombre"]], use_container_width=True)
             
             st.markdown("##### 🗑️ Eliminar Producto del Catálogo")
             prod_a_eliminar = st.selectbox("Seleccionar producto a eliminar", [p["nombre"] for p in prods_db])
