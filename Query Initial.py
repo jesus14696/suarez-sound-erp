@@ -1,7 +1,8 @@
 import io
+import json
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 from supabase import create_client, Client
 from fpdf import FPDF
 
@@ -49,7 +50,7 @@ st.markdown("""
 # CONEXIÓN A SUPABASE
 # ==========================================
 SUPABASE_URL = "https://igvireifhqgotfrfamvs.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlndmlyZWlmaHFnb3RmcmZhbXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2ODE3MTcsImV4cCI6MjEwMzI1NzcxN30.UN_KFNPPgrf4TIIcqWHAENaOIFhCCYsWxSnJcngRZ_0"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlndmlyZWlmaHFnb3RmcmZhbXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2ODE3MTcsImV4cCI6MjA3NDI1NzcxN30.UN_KFNPPgrf4TIIcqWHAENaOIFhCCYsWxSnJcngRZ_0"
 
 def get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -59,8 +60,28 @@ try:
 except Exception as e:
     st.error(f"Error de conexión con Supabase: {e}")
 
+# Carga inicial de catálogo de productos
+def obtener_o_inicializar_productos():
+    try:
+        res = supabase.table("productos").select("id, nombre, precio").order("id").execute()
+        if not res.data:
+            prod_iniciales = [
+                {"nombre": "Producto 1: 2 Subwoofers", "precio": 150.0},
+                {"nombre": "Producto 2: 4 Subwoofers", "precio": 280.0},
+                {"nombre": "Producto 3: 6 Subwoofers", "precio": 400.0},
+                {"nombre": "Producto 4: 2 Altavoces", "precio": 120.0},
+                {"nombre": "Producto 5: 4 Altavoces", "precio": 220.0},
+                {"nombre": "Producto 6: 6 Altavoces", "precio": 320.0},
+                {"nombre": "Producto 7: Cabina DJ", "precio": 200.0}
+            ]
+            supabase.table("productos").insert(prod_iniciales).execute()
+            res = supabase.table("productos").select("id, nombre, precio").order("id").execute()
+        return res.data
+    except Exception:
+        return []
+
 # ==========================================
-# GENERADOR DE PDF (Factura vs Proforma)
+# GENERADOR DE PDF (Facturas y Presupuestos)
 # ==========================================
 class InvoicePDF(FPDF):
     def header(self):
@@ -99,7 +120,6 @@ def generar_pdf_documento(registro_info):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     
-    # Datos Emisor y Cliente
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(15, 23, 42)
     pdf.cell(95, 6, "EMISOR:", ln=False)
@@ -121,10 +141,9 @@ def generar_pdf_documento(registro_info):
     
     pdf.ln(8)
     pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(0, 6, f"Numero de Documento: {num_doc}   |   Fecha: {fecha}", ln=True)
+    pdf.cell(0, 6, f"Numero de Documento: {num_doc}   |   Fecha de Emision: {fecha}", ln=True)
     pdf.ln(6)
     
-    # Tabla de Servicios
     pdf.set_fill_color(248, 250, 252)
     pdf.set_font("Helvetica", "B", 9)
     pdf.cell(140, 8, "Descripcion del Servicio", border=1, fill=True)
@@ -164,6 +183,70 @@ def generar_pdf_documento(registro_info):
     
     return bytes(pdf.output())
 
+def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas):
+    pdf = InvoicePDF()
+    pdf.doc_title = "PRESUPUESTO"
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(15, 23, 42)
+    pdf.cell(95, 6, "EMISOR:", ln=False)
+    pdf.cell(95, 6, "CLIENTE:", ln=True)
+    
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(51, 65, 85)
+    pdf.cell(95, 5, "Suarez Sound S.L.", ln=False)
+    pdf.cell(95, 5, f"{cliente_nombre}", ln=True)
+    
+    pdf.cell(95, 5, "NIF: B-12345678", ln=False)
+    pdf.cell(95, 5, f"DNI/NIF: {cliente_nif or 'No especificado'}", ln=True)
+    pdf.cell(95, 5, "info@suarezsound.com", ln=True)
+    
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "B", 10)
+    fecha_dt = date.fromisoformat(str(fecha_generacion))
+    fecha_validez = fecha_dt + timedelta(days=validez_dias)
+    pdf.cell(0, 6, f"Numero Presupuesto: {num_presupuesto}", ln=True)
+    pdf.cell(0, 6, f"Fecha de Generacion: {fecha_dt.strftime('%d/%m/%Y')}   |   Valido hasta: {fecha_validez.strftime('%d/%m/%Y')}", ln=True)
+    pdf.ln(6)
+    
+    pdf.set_fill_color(248, 250, 252)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(95, 8, "Producto / Equipamiento", border=1, fill=True)
+    pdf.cell(25, 8, "Cant.", border=1, align="C", fill=True)
+    pdf.cell(35, 8, "Precio Un.", border=1, align="R", fill=True)
+    pdf.cell(35, 8, "Total", border=1, align="R", fill=True, ln=True)
+    
+    pdf.set_font("Helvetica", "", 9)
+    total_presupuesto = 0.0
+    for item in items:
+        prod = item["producto"]
+        cant = item["cantidad"]
+        pu = float(item["precio_unitario"])
+        subtotal = cant * pu
+        total_presupuesto += subtotal
+        
+        pdf.cell(95, 8, prod, border=1)
+        pdf.cell(25, 8, str(cant), border=1, align="C")
+        pdf.cell(35, 8, f"{pu:,.2f} EUR", border=1, align="R")
+        pdf.cell(35, 8, f"{subtotal:,.2f} EUR", border=1, align="R", ln=True)
+        
+    pdf.ln(6)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(120, 8, "", ln=False)
+    pdf.cell(35, 8, "TOTAL ESTIMADO:", ln=False)
+    pdf.cell(35, 8, f"{total_presupuesto:,.2f} EUR", align="R", ln=True)
+    
+    if notas:
+        pdf.ln(8)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(0, 5, "Notas y Condiciones:", ln=True)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.multi_cell(0, 4, notas)
+
+    return bytes(pdf.output())
+
 # ==========================================
 # NAVEGACIÓN LATERAL
 # ==========================================
@@ -171,13 +254,16 @@ st.sidebar.markdown("<h2 style='text-align: center; color: #818cf8;'>🔊 Suáre
 st.sidebar.markdown("---")
 menu = st.sidebar.radio(
     "Menú Principal", 
-    ["📊 Dashboard", "👤 CRM Clientes", "➕ Registros / Facturas", "📄 Historial Trabajos", "💸 Gastos"]
+    ["📊 Dashboard KPI", "📈 Analítica y Gráficas", "📋 Presupuestos", "👤 CRM Clientes", "➕ Registros / Facturas", "📄 Historial Trabajos", "💸 Gastos"]
 )
 
+if "items_presupuesto" not in st.session_state:
+    st.session_state.items_presupuesto = []
+
 # ==========================================
-# SECCIÓN: DASHBOARD
+# SECCIÓN: DASHBOARD KPI
 # ==========================================
-if menu == "📊 Dashboard":
+if menu == "📊 Dashboard KPI":
     st.title("📊 Dashboard General")
     st.markdown("Visión global del rendimiento financiero de **Suárez Sound**.")
     st.markdown("---")
@@ -245,6 +331,286 @@ if menu == "📊 Dashboard":
 
     except Exception as err:
         st.error(f"Error al cargar datos del Dashboard: {err}")
+
+# ==========================================
+# SECCIÓN: ANALÍTICA Y GRÁFICAS AVANZADAS
+# ==========================================
+elif menu == "📈 Analítica y Gráficas":
+    st.title("📈 Analítica Visual y Rendimiento")
+    st.markdown("Análisis detallado sobre tendencias de facturación, estado de cobros y principales clientes.")
+    st.markdown("---")
+    
+    try:
+        res_fac = supabase.table("facturas").select("numero_factura, fecha_emision, total, estado, clientes(nombre)").execute()
+        res_gas = supabase.table("gastos").select("fecha, total").execute()
+        
+        if res_fac.data or res_gas.data:
+            if res_fac.data:
+                raw_fac = res_fac.data
+                fac_list = []
+                for item in raw_fac:
+                    tipo = "Factura Oficial" if item["numero_factura"].startswith("FAC") else "Proforma / Recibo"
+                    cliente = item["clientes"]["nombre"] if item.get("clientes") else "Sin Cliente"
+                    fac_list.append({
+                        "numero": item["numero_factura"],
+                        "fecha": pd.to_datetime(item["fecha_emision"]),
+                        "mes_año": pd.to_datetime(item["fecha_emision"]).strftime('%Y-%m'),
+                        "total": float(item["total"]),
+                        "estado": item["estado"],
+                        "tipo": tipo,
+                        "cliente": cliente
+                    })
+                df_fac = pd.DataFrame(fac_list)
+            else:
+                df_fac = pd.DataFrame()
+
+            if res_gas.data:
+                raw_gas = res_gas.data
+                gas_list = [{
+                    "fecha": pd.to_datetime(g["fecha"]),
+                    "mes_año": pd.to_datetime(g["fecha"]).strftime('%Y-%m'),
+                    "total": float(g["total"])
+                } for g in raw_gas]
+                df_gas = pd.DataFrame(gas_list)
+            else:
+                df_gas = pd.DataFrame()
+
+            st.subheader("📅 Evolución Mensual: Ingresos vs Gastos")
+            if not df_fac.empty or not df_gas.empty:
+                df_fac_mensual = df_fac.groupby("mes_año")["total"].sum().reset_index(name="Ingresos") if not df_fac.empty else pd.DataFrame(columns=["mes_año", "Ingresos"])
+                df_gas_mensual = df_gas.groupby("mes_año")["total"].sum().reset_index(name="Gastos") if not df_gas.empty else pd.DataFrame(columns=["mes_año", "Gastos"])
+                
+                df_mensual = pd.merge(df_fac_mensual, df_gas_mensual, on="mes_año", how="outer").fillna(0).sort_values("mes_año")
+                df_mensual = df_mensual.set_index("mes_año")
+                st.line_chart(df_mensual)
+            else:
+                st.info("Insuficientes datos para la gráfica temporal.")
+
+            st.markdown("---")
+            col_g1, col_g2 = st.columns(2)
+
+            with col_g1:
+                st.subheader("💳 Estado de Cobros")
+                if not df_fac.empty:
+                    df_estado = df_fac.groupby("estado")["total"].sum()
+                    st.bar_chart(df_estado)
+
+            with col_g2:
+                st.subheader("📄 Distribución: Factura vs Proforma")
+                if not df_fac.empty:
+                    df_tipo = df_fac.groupby("tipo")["total"].sum()
+                    st.bar_chart(df_tipo)
+
+            st.markdown("---")
+            st.subheader("🏆 Top Clientes por Volumen de Ingresos")
+            if not df_fac.empty:
+                df_top_clientes = df_fac.groupby("cliente")["total"].sum().sort_values(ascending=False).head(10)
+                st.bar_chart(df_top_clientes)
+
+        else:
+            st.info("Aún no existen suficientes datos de facturas o gastos registrados para generar las gráficas.")
+
+    except Exception as err:
+        st.error(f"Error procesando la analítica: {err}")
+
+# ==========================================
+# SECCIÓN: PRESUPUESTOS (NUEVO & MEJORADO)
+# ==========================================
+elif menu == "📋 Presupuestos":
+    st.title("📋 Módulo de Presupuestos y Catálogo")
+    st.markdown("Genera presupuestos con la fecha de emisión e independízate agregando nuevos productos al catálogo.")
+    st.markdown("---")
+
+    tab_crear, tab_catalogo, tab_historial = st.tabs(["⚡ Crear Presupuesto", "📦 Gestión de Productos / Catálogo", "📄 Historial Presupuestos"])
+
+    # 1. GENERAR PRESUPUESTO
+    with tab_crear:
+        try:
+            res_clientes = supabase.table("clientes").select("id, nombre, nif").order("nombre").execute()
+            clientes = res_clientes.data
+            
+            lista_productos_db = obtener_o_inicializar_productos()
+            dict_productos = {p["nombre"]: float(p["precio"]) for p in lista_productos_db}
+
+            if not clientes:
+                st.warning("⚠️ Primero debes dar de alta al menos un cliente en 'CRM Clientes'.")
+            elif not dict_productos:
+                st.warning("⚠️ No hay productos disponibles en el catálogo.")
+            else:
+                dict_clientes = {c["nombre"]: c for c in clientes}
+
+                col_p1, col_p2, col_p3 = st.columns([2, 1, 1])
+                with col_p1:
+                    cliente_sel = st.selectbox("Cliente Destinatario *", list(dict_clientes.keys()))
+                with col_p2:
+                    fecha_pres = st.date_input("Fecha de Generación", value=date.today())
+                with col_p3:
+                    validez = st.number_input("Validez (Días)", min_value=1, value=15)
+
+                st.markdown("---")
+                st.subheader("🛠️ Seleccionar Equipamientos / Productos")
+
+                col_i1, col_i2, col_i3, col_i4 = st.columns([3, 1, 1.5, 1])
+                with col_i1:
+                    prod_sel = st.selectbox("Seleccionar Producto", list(dict_productos.keys()))
+                with col_i2:
+                    cant_prod = st.number_input("Cantidad", min_value=1, value=1)
+                with col_i3:
+                    precio_def = dict_productos.get(prod_sel, 0.0)
+                    precio_unitario = st.number_input("Precio Unitario (€)", min_value=0.0, value=precio_def, step=10.0, format="%.2f")
+                with col_i4:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("➕ Añadir", use_container_width=True):
+                        st.session_state.items_presupuesto.append({
+                            "producto": prod_sel,
+                            "cantidad": cant_prod,
+                            "precio_unitario": precio_unitario,
+                            "subtotal": cant_prod * precio_unitario
+                        })
+                        st.rerun()
+
+                if st.session_state.items_presupuesto:
+                    st.markdown("#### Lista de Ítems del Presupuesto")
+                    df_pres = pd.DataFrame(st.session_state.items_presupuesto)
+                    st.dataframe(df_pres, use_container_width=True)
+
+                    total_presupuesto = df_pres["subtotal"].sum()
+                    st.success(f"💰 **Total Presupuesto:** `{total_presupuesto:,.2f} €`")
+
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        notas = st.text_area("Notas o Condiciones del Presupuesto", "Ejemplo: Transporte e instalación incluidos. Validez 15 días.")
+                    with col_b2:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🗑️ Limpiar Ítems", use_container_width=True):
+                            st.session_state.items_presupuesto = []
+                            st.rerun()
+
+                        cliente_info = dict_clientes[cliente_sel]
+                        num_pres_code = f"PRES-{date.today().strftime('%Y%m%d')}-{cliente_info['id']}"
+
+                        pdf_bytes = generar_pdf_presupuesto(
+                            cliente_nombre=cliente_info["nombre"],
+                            cliente_nif=cliente_info["nif"],
+                            items=st.session_state.items_presupuesto,
+                            num_presupuesto=num_pres_code,
+                            fecha_generacion=fecha_pres,
+                            validez_dias=validez,
+                            notas=notas
+                        )
+
+                        if st.button("💾 Guardar en Sistema y Preparar PDF", use_container_width=True):
+                            try:
+                                data_pres = {
+                                    "numero_presupuesto": num_pres_code,
+                                    "cliente_id": cliente_info["id"],
+                                    "fecha_emision": str(fecha_pres),
+                                    "validez_dias": validez,
+                                    "items": st.session_state.items_presupuesto,
+                                    "total": total_presupuesto,
+                                    "notas": notas
+                                }
+                                supabase.table("presupuestos").insert(data_pres).execute()
+                                st.success("¡Presupuesto guardado con éxito!")
+                            except Exception as ex:
+                                st.warning(f"Aviso al guardar en BD: {ex}")
+
+                        st.download_button(
+                            label="📄 Descargar Presupuesto en PDF",
+                            data=pdf_bytes,
+                            file_name=f"{num_pres_code}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                else:
+                    st.info("Añade productos de la lista superior para construir el presupuesto.")
+
+        except Exception as err:
+            st.error(f"Error generando presupuesto: {err}")
+
+    # 2. GESTIÓN DEL CATÁLOGO
+    with tab_catalogo:
+        st.subheader("➕ Añadir Nuevo Producto / Servicio al Catálogo")
+        with st.form("nuevo_producto_form", clear_on_submit=True):
+            col_np1, col_np2 = st.columns([3, 1])
+            with col_np1:
+                nuevo_prod_nombre = st.text_input("Nombre / Descripción del Producto *")
+            with col_np2:
+                nuevo_prod_precio = st.number_input("Precio Estándar (€)", min_value=0.0, step=10.0, format="%.2f")
+            
+            sub_prod = st.form_submit_button("Guardar en Catálogo")
+            if sub_prod:
+                if not nuevo_prod_nombre:
+                    st.error("El nombre del producto no puede estar vacío.")
+                else:
+                    try:
+                        supabase.table("productos").insert({"nombre": nuevo_prod_nombre, "precio": nuevo_prod_precio}).execute()
+                        st.success(f"Producto '{nuevo_prod_nombre}' añadido con éxito al catálogo.")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Error al guardar producto: {ex}")
+
+        st.markdown("---")
+        st.subheader("📦 Productos Actualmente Registrados")
+        prods_db = obtener_o_inicializar_productos()
+        if prods_db:
+            df_prods = pd.DataFrame(prods_db)
+            st.dataframe(df_prods[["id", "nombre", "precio"]], use_container_width=True)
+            
+            st.markdown("##### 🗑️ Eliminar Producto")
+            prod_a_eliminar = st.selectbox("Seleccionar producto a eliminar", [p["nombre"] for p in prods_db])
+            if st.button("Eliminar del Catálogo"):
+                p_obj = next((p for p in prods_db if p["nombre"] == prod_a_eliminar), None)
+                if p_obj:
+                    supabase.table("productos").delete().eq("id", p_obj["id"]).execute()
+                    st.success("Producto eliminado.")
+                    st.rerun()
+        else:
+            st.info("No hay productos en el catálogo.")
+
+    # 3. HISTORIAL DE PRESUPUESTOS
+    with tab_historial:
+        st.subheader("📄 Historial de Presupuestos Generados")
+        try:
+            res_p = supabase.table("presupuestos").select("id, numero_presupuesto, fecha_emision, total, validez_dias, notas, items, clientes(nombre, nif)").order("id", desc=True).execute()
+            if res_p.data:
+                raw_p = res_p.data
+                filas_p = []
+                for p in raw_p:
+                    cliente_n = p["clientes"]["nombre"] if p.get("clientes") else "Sin Cliente"
+                    filas_p.append({
+                        "Código": p["numero_presupuesto"],
+                        "Cliente": cliente_n,
+                        "Fecha Generación": p["fecha_emision"],
+                        "Total (€)": p["total"]
+                    })
+                st.dataframe(pd.DataFrame(filas_p), use_container_width=True)
+                
+                pres_sel_code = st.selectbox("Seleccionar Presupuesto para Re-descargar PDF", [p["numero_presupuesto"] for p in raw_p])
+                p_selected = next((p for p in raw_p if p["numero_presupuesto"] == pres_sel_code), None)
+                
+                if p_selected:
+                    cli_data = p_selected.get("clientes") or {}
+                    pdf_h = generar_pdf_presupuesto(
+                        cliente_nombre=cli_data.get("nombre", "Cliente General"),
+                        cliente_nif=cli_data.get("nif", ""),
+                        items=p_selected["items"],
+                        num_presupuesto=p_selected["numero_presupuesto"],
+                        fecha_generacion=p_selected["fecha_emision"],
+                        validez_dias=p_selected["validez_dias"],
+                        notas=p_selected.get("notas", "")
+                    )
+                    st.download_button(
+                        label=f"📥 Re-descargar {pres_sel_code}.pdf",
+                        data=pdf_h,
+                        file_name=f"{pres_sel_code}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+            else:
+                st.info("Aún no se han guardado presupuestos en el historial.")
+        except Exception as err:
+            st.error(f"Error consultando historial: {err}")
 
 # ==========================================
 # SECCIÓN: CRM CLIENTES
@@ -330,7 +696,6 @@ elif menu == "➕ Registros / Facturas":
                 importe_base = st.number_input("Importe Base del Servicio (€) *", min_value=0.0, step=10.0, format="%.2f")
                 estado_inicial = st.selectbox("Estado del Cobro", ["Pendiente", "Cobrada"])
                 
-                # CÁLCULO DINÁMICO SEGÚN TIPO DE DOCUMENTO
                 if "Sí" in quiere_factura:
                     num_final = f"FAC-{siguiente_num}"
                     iva_calculado = importe_base * 0.21
