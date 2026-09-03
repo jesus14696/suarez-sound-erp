@@ -49,7 +49,7 @@ st.markdown("""
 # CONEXIÓN A SUPABASE
 # ==========================================
 SUPABASE_URL = "https://igvireifhqgotfrfamvs.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlndmlyZWlmaHFnb3RmcmZhbXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDkyMzI0MTEsImV4cCI6MjAyNDgwODQxMX0.XXXXXXXXXXXXXX" 
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlndmlyZWlmaHFnb3RmcmZhbXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2ODE3MTcsImV4cCI6MjEwMzI1NzcxN30.UN_KFNPPgrf4TIIcqWHAENaOIFhCCYsWxSnJcngRZ_0"
 
 def get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
