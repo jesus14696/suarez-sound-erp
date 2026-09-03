@@ -43,6 +43,14 @@ st.markdown("""
         border-radius: 12px;
         padding: 24px;
     }
+
+    .event-card {
+        background-color: #1e293b;
+        border-left: 5px solid #6366f1;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -254,13 +262,24 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     return bytes(pdf.output())
 
 # ==========================================
-# NAVEGACIÓN LATERAL
+# NAVEGACIÓN LATERAL Y LOGO
 # ==========================================
 st.sidebar.markdown("<h2 style='text-align: center; color: #818cf8;'>🔊 Suárez Sound</h2>", unsafe_allow_html=True)
+
+# Sección de Carga de Logo en la barra lateral
+st.sidebar.markdown("---")
+st.sidebar.markdown("**🖼️ Logo de la Empresa**")
+uploaded_logo = st.sidebar.file_uploader("Subir logo para la interfaz", type=["png", "jpg", "jpeg", "svg"])
+
+if uploaded_logo is not None:
+    st.sidebar.image(uploaded_logo, use_container_width=True)
+else:
+    st.sidebar.caption("Sube el logo de tu colega/empresa para visualizarlo aquí.")
+
 st.sidebar.markdown("---")
 menu = st.sidebar.radio(
     "Menú Principal", 
-    ["📊 Dashboard KPI", "📈 Analítica y Gráficas", "📋 Presupuestos", "👤 CRM Clientes", "➕ Registros / Facturas", "📄 Historial Trabajos", "💸 Gastos"]
+    ["📊 Dashboard KPI", "📅 Calendario Eventos", "📈 Analítica y Gráficas", "📋 Presupuestos", "👤 CRM Clientes", "➕ Registros / Facturas", "📄 Historial Trabajos", "💸 Gastos"]
 )
 
 if "items_presupuesto" not in st.session_state:
@@ -337,6 +356,69 @@ if menu == "📊 Dashboard KPI":
 
     except Exception as err:
         st.error(f"Error al cargar datos del Dashboard: {err}")
+
+# ==========================================
+# SECCIÓN: CALENDARIO DE EVENTOS
+# ==========================================
+elif menu == "📅 Calendario Eventos":
+    st.title("📅 Calendario de Eventos y Reservas")
+    st.markdown("Consulta la disponibilidad de fechas y revisa los servicios programados.")
+    st.markdown("---")
+
+    try:
+        res_fac = supabase.table("facturas").select("numero_factura, fecha_emision, total, estado, clientes(nombre, telefono)").order("fecha_emision", desc=False).execute()
+        
+        if res_fac.data:
+            df_eventos = pd.DataFrame(res_fac.data)
+            
+            col_c1, col_c2 = st.columns([1, 2])
+            
+            with col_c1:
+                st.subheader("🔍 Consultar Disponibilidad de Fecha")
+                fecha_busqueda = st.date_input("Seleccionar día para consultar", value=date.today())
+                fecha_str = str(fecha_busqueda)
+                
+                eventos_dia = df_eventos[df_eventos["fecha_emision"] == fecha_str]
+                
+                if not eventos_dia.empty:
+                    st.error(f"⚠️ **FECHA OCUPADA:** Hay {len(eventos_dia)} evento(s) o servicio(s) el {fecha_busqueda.strftime('%d/%m/%Y')}:")
+                    for _, row in eventos_dia.iterrows():
+                        cli_nom = row["clientes"]["nombre"] if row.get("clientes") else "Sin Cliente"
+                        st.markdown(f"- **{row['numero_factura']}** | {cli_nom} ({row['total']:,.2f} €)")
+                else:
+                    st.success(f"✅ **FECHA DISPONIBLE:** No hay eventos registrados para el {fecha_busqueda.strftime('%d/%m/%Y')}.")
+
+            with col_c2:
+                st.subheader("📋 Lista de Eventos / Reservas Programadas")
+                
+                for idx, row in df_eventos.iterrows():
+                    cli_info = row.get("clientes") or {}
+                    cli_nombre = cli_info.get("nombre", "Cliente General")
+                    cli_tel = cli_info.get("telefono") or "Sin teléfono"
+                    estado_pago = row["estado"]
+                    badge_color = "🟢" if estado_pago == "Cobrada" else "🟠"
+                    
+                    try:
+                        fecha_f = pd.to_datetime(row['fecha_emision']).strftime('%d/%m/%Y')
+                    except Exception:
+                        fecha_f = row['fecha_emision']
+                        
+                    st.markdown(f"""
+                    <div class="event-card">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h4 style="margin:0; color: #818cf8;">📅 {fecha_f} - {cli_nombre}</h4>
+                            <span>{badge_color} <b>{estado_pago}</b></span>
+                        </div>
+                        <p style="margin: 5px 0 0 0; font-size: 0.9rem; color: #cbd5e1;">
+                            <b>Código:</b> {row['numero_factura']} | <b>Importe:</b> {row['total']:,.2f} € | <b>Teléfono:</b> {cli_tel}
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.info("No hay eventos ni servicios registrados en el calendario todavía.")
+            
+    except Exception as err:
+        st.error(f"Error al cargar el calendario de eventos: {err}")
 
 # ==========================================
 # SECCIÓN: ANALÍTICA Y GRÁFICAS
@@ -545,21 +627,22 @@ elif menu == "📋 Presupuestos":
                         )
 
                         if st.button("💾 Guardar en Historial y Preparar PDF", use_container_width=True):
+                            data_pres = {
+                                "numero_presupuesto": num_pres_code,
+                                "cliente_id": cliente_info["id"],
+                                "fecha_emision": str(fecha_pres),
+                                "validez_dias": validez,
+                                "items": st.session_state.items_presupuesto,
+                                "total": total_final_presupuesto,
+                                "notas": notas
+                            }
                             try:
-                                data_pres = {
-                                    "numero_presupuesto": num_pres_code,
-                                    "cliente_id": cliente_info["id"],
-                                    "fecha_emision": str(fecha_pres),
-                                    "validez_dias": validez,
-                                    "items": st.session_state.items_presupuesto,
-                                    "total": total_final_presupuesto,
-                                    "notas": notas,
-                                    "estado": estado_inicial_pres
-                                }
+                                data_pres_con_estado = {**data_pres, "estado": estado_inicial_pres}
+                                supabase.table("presupuestos").insert(data_pres_con_estado).execute()
+                            except Exception:
                                 supabase.table("presupuestos").insert(data_pres).execute()
-                                st.success(f"¡Presupuesto guardado en estado '{estado_inicial_pres}'!")
-                            except Exception as ex:
-                                st.warning(f"Aviso al guardar en BD: {ex}")
+                                
+                            st.success(f"¡Presupuesto guardado!")
 
                         st.download_button(
                             label="📄 Descargar Presupuesto en PDF",
@@ -578,7 +661,11 @@ elif menu == "📋 Presupuestos":
     with tab_historial:
         st.subheader("📄 Historial y Control de Estados")
         try:
-            res_p = supabase.table("presupuestos").select("id, numero_presupuesto, cliente_id, fecha_emision, total, validez_dias, notas, items, estado, clientes(nombre, nif)").order("id", desc=True).execute()
+            try:
+                res_p = supabase.table("presupuestos").select("id, numero_presupuesto, cliente_id, fecha_emision, total, validez_dias, notas, items, estado, clientes(nombre, nif)").order("id", desc=True).execute()
+            except Exception:
+                res_p = supabase.table("presupuestos").select("id, numero_presupuesto, cliente_id, fecha_emision, total, validez_dias, notas, items, clientes(nombre, nif)").order("id", desc=True).execute()
+
             if res_p.data:
                 raw_p = res_p.data
                 filas_p = []
@@ -608,7 +695,6 @@ elif menu == "📋 Presupuestos":
                     pres_sel_code = st.selectbox("Seleccionar Presupuesto", [p["numero_presupuesto"] for p in raw_p], key="sel_pres_e")
                     nuevo_estado_p = st.selectbox("Nuevo Estado", ["Pendiente de aprobación", "Enviado", "Aceptado", "Rechazado"])
                     
-                    # SI SE SELECCIONA ACEPTADO: PREGUNTAR POR TIPO DE DOCUMENTO
                     tipo_doc_aceptado = "No (Proforma / Recibo sin IVA)"
                     if nuevo_estado_p == "Aceptado":
                         st.info("🎉 ¡Presupuesto Aceptado! Elige cómo deseas registrarlo:")
@@ -619,15 +705,16 @@ elif menu == "📋 Presupuestos":
                         )
                     
                     if st.button("Actualizar Estado Presupuesto", use_container_width=True):
-                        # Actualizar estado en DB
-                        supabase.table("presupuestos").update({"estado": nuevo_estado_p}).eq("numero_presupuesto", pres_sel_code).execute()
-                        st.success(f"Presupuesto {pres_sel_code} actualizado a '{nuevo_estado_p}'.")
+                        try:
+                            supabase.table("presupuestos").update({"estado": nuevo_estado_p}).eq("numero_presupuesto", pres_sel_code).execute()
+                        except Exception:
+                            st.warning("⚠️ La columna 'estado' aún no existe en Supabase.")
                         
-                        # CREAR REGISTRO SI ES ACEPTADO SEGÚN LA ELECCIÓN
+                        st.success(f"Presupuesto {pres_sel_code} cambiado a '{nuevo_estado_p}'.")
+                        
                         if nuevo_estado_p == "Aceptado":
                             p_obj = next((p for p in raw_p if p["numero_presupuesto"] == pres_sel_code), None)
                             if p_obj:
-                                # Obtener el último correlativo
                                 res_facturas = supabase.table("facturas").select("numero_factura").order("id", desc=True).limit(1).execute()
                                 num_seq = 1
                                 if res_facturas.data:
@@ -642,7 +729,7 @@ elif menu == "📋 Presupuestos":
                                 if "Sí" in tipo_doc_aceptado:
                                     num_doc_nuevo = f"FAC-{seq_str}"
                                     total_con_iva = total_presupuesto * 1.21
-                                    st.info(f"Generando Factura Oficial `{num_doc_nuevo}` con total de `{total_con_iva:,.2f} €` (incluye 21% IVA)...")
+                                    st.info(f"Generando Factura Oficial `{num_doc_nuevo}` por `{total_con_iva:,.2f} €` (con 21% IVA)...")
                                     data_fac_auto = {
                                         "numero_factura": num_doc_nuevo,
                                         "cliente_id": p_obj["cliente_id"],
@@ -652,7 +739,7 @@ elif menu == "📋 Presupuestos":
                                     }
                                 else:
                                     num_doc_nuevo = f"REC-{seq_str}"
-                                    st.info(f"Generando Proforma/Recibo `{num_doc_nuevo}` con importe neto de `{total_presupuesto:,.2f} €`...")
+                                    st.info(f"Generando Proforma/Recibo `{num_doc_nuevo}` por `{total_presupuesto:,.2f} €`...")
                                     data_fac_auto = {
                                         "numero_factura": num_doc_nuevo,
                                         "cliente_id": p_obj["cliente_id"],
@@ -662,7 +749,7 @@ elif menu == "📋 Presupuestos":
                                     }
                                     
                                 supabase.table("facturas").insert(data_fac_auto).execute()
-                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado y enviado al Módulo de Trabajos!")
+                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado y registrado en 'Historial Trabajos'!")
                         st.rerun()
 
                 with col_e2:
