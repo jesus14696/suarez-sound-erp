@@ -109,6 +109,13 @@ def obtener_o_inicializar_productos():
     except Exception:
         return []
 
+# FUNCIÓN SEGURA PARA LEER FACTURAS SIN FALLAR SI FALTA LA COLUMNA ITEMS
+def obtener_facturas_seguro():
+    try:
+        return supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, items, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
+    except Exception:
+        return supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
+
 # ==========================================
 # GENERADOR DE PDF CON REPORTLAB Y LOGO
 # ==========================================
@@ -219,11 +226,12 @@ def generar_pdf_documento(registro_info):
                 Paragraph(f"{subtotal:,.2f} EUR", normal_style)
             ])
     else:
+        base_calc = total / 1.21 if es_factura else total
         table_data.append([
             Paragraph("Servicios técnicos de sonorización y montaje", normal_style),
             Paragraph("1", normal_style),
-            Paragraph(f"{total:,.2f} EUR", normal_style),
-            Paragraph(f"{total:,.2f} EUR", normal_style)
+            Paragraph(f"{base_calc:,.2f} EUR", normal_style),
+            Paragraph(f"{base_calc:,.2f} EUR", normal_style)
         ])
 
     items_table = Table(table_data, colWidths=[270, 60, 105, 105])
@@ -1128,7 +1136,7 @@ elif menu == "📄 Historial Trabajos":
     st.markdown("---")
     
     try:
-        res = supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, items, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
+        res = obtener_facturas_seguro()
         
         if res.data:
             raw_facturas = res.data
