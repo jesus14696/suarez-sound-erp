@@ -1,14 +1,13 @@
 import io
-import json
 import os
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client, Client
 
-# Módulo ReportLab para generación optimizada de PDFs
+# Módulo ReportLab para generación optimizada de PDFs con Imagen
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -61,6 +60,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
+# DATOS FISCALES EMISORES FIJOS
+# ==========================================
+EMISOR_FACTURA = {
+    "nombre": "Carlos Suárez María",
+    "nif": "12345678X"
+}
+
+EMISOR_PROFORMA = {
+    "nombre": "Adrián Suárez",
+    "nif": "87654321Y"
+}
+
+# ==========================================
 # CONEXIÓN A SUPABASE
 # ==========================================
 SUPABASE_URL = "https://igvireifhqgotfrfamvs.supabase.co"
@@ -98,16 +110,16 @@ def obtener_o_inicializar_productos():
         return []
 
 # ==========================================
-# GENERADOR DE PDF CON REPORTLAB (EMISOR DINÁMICO)
+# GENERADOR DE PDF CON REPORTLAB Y LOGO
 # ==========================================
-def obtener_datos_emisor(es_factura_oficial, emisor_factura_nom, emisor_factura_nif, emisor_proforma_nom, emisor_proforma_nif):
-    """Determina si emite el padre (Factura Oficial) o Adrián (Proforma/Presupuesto)"""
-    if es_factura_oficial:
-        return emisor_factura_nom, emisor_factura_nif
-    else:
-        return emisor_proforma_nom, emisor_proforma_nif
+def obtener_logo_path():
+    possible_paths = ["logo.png", "Logo Suarez Sound.jpeg", "logo.jpg"]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    return None
 
-def generar_pdf_documento(registro_info, nom_padre, nif_padre, nom_adrian, nif_adrian):
+def generar_pdf_documento(registro_info):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -124,13 +136,12 @@ def generar_pdf_documento(registro_info, nom_padre, nif_padre, nom_adrian, nif_a
     normal_style.leading = 11
     
     bold_style = ParagraphStyle('BoldStyle', parent=normal_style, fontName='Helvetica-Bold')
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=16, textColor=colors.HexColor('#2563eb'), alignment=2)
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, textColor=colors.HexColor('#2563eb'), alignment=2)
 
     num_doc = registro_info.get("numero_factura", "DOC-0000")
     es_factura = num_doc.startswith("FAC")
     
-    # Asignación dinámica de Emisor
-    emisor_nombre, emisor_nif = obtener_datos_emisor(es_factura, nom_padre, nif_padre, nom_adrian, nif_adrian)
+    emisor_info = EMISOR_FACTURA if es_factura else EMISOR_PROFORMA
 
     story = []
     fecha = str(registro_info.get("fecha_emision", date.today()))
@@ -145,10 +156,17 @@ def generar_pdf_documento(registro_info, nom_padre, nif_padre, nom_adrian, nif_a
 
     doc_title = "FACTURA OFICIAL" if es_factura else "FACTURA PROFORMA"
     
+    logo_path = obtener_logo_path()
+    if logo_path:
+        img_logo = Image(logo_path, width=120, height=55)
+        header_right = img_logo
+    else:
+        header_right = Paragraph(doc_title, title_style)
+
     header_data = [
         [
             Paragraph("<b>SUAREZ SOUND</b><br/><font color='#64748b' size=8>Sonido e Iluminación | @suarez_sound</font>", normal_style),
-            Paragraph(doc_title, title_style)
+            header_right
         ]
     ]
     header_table = Table(header_data, colWidths=[270, 270])
@@ -157,12 +175,16 @@ def generar_pdf_documento(registro_info, nom_padre, nif_padre, nom_adrian, nif_a
         ('ALIGN', (1,0), (1,0), 'RIGHT')
     ]))
     story.append(header_table)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 10))
+
+    if logo_path:
+        story.append(Paragraph(f"<font color='#2563eb'><b>{doc_title}</b></font>", title_style))
+        story.append(Spacer(1, 10))
 
     info_data = [
         [Paragraph("<b>EMISOR:</b>", bold_style), Paragraph("<b>CLIENTE:</b>", bold_style)],
         [
-            Paragraph(f"<b>{emisor_nombre}</b><br/>DNI/NIF: {emisor_nif}<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
+            Paragraph(f"<b>{emisor_info['nombre']}</b><br/>DNI/NIF: {emisor_info['nif']}<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
             Paragraph(f"{nombre_cliente}<br/>DNI/NIF: {nif_cliente}<br/>Email: {email_cliente}<br/>Tel: {telefono_cliente}", normal_style)
         ]
     ]
@@ -184,11 +206,11 @@ def generar_pdf_documento(registro_info, nom_padre, nif_padre, nom_adrian, nif_a
         Paragraph("<b>Total</b>", bold_style)
     ]]
 
-    if items:
+    if items and isinstance(items, list) and len(items) > 0:
         for item in items:
             prod = item.get("producto", "Servicio Técnico")
             cant = item.get("cantidad", 1)
-            pu = float(item.get("precio_unitario", total))
+            pu = float(item.get("precio_unitario", 0.0))
             subtotal = float(item.get("subtotal", cant * pu))
             table_data.append([
                 Paragraph(prod, normal_style),
@@ -244,7 +266,7 @@ def generar_pdf_documento(registro_info, nom_padre, nif_padre, nom_adrian, nif_a
     return buffer.getvalue()
 
 
-def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas, nom_adrian, nif_adrian, total_final_custom=None):
+def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas, total_final_custom=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -261,18 +283,22 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     normal_style.leading = 11
     
     bold_style = ParagraphStyle('BoldStyle', parent=normal_style, fontName='Helvetica-Bold')
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=16, textColor=colors.HexColor('#2563eb'), alignment=2)
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, textColor=colors.HexColor('#2563eb'), alignment=2)
 
     story = []
 
-    # Los presupuestos siempre los emite Adrián Suárez
-    emisor_nombre = nom_adrian
-    emisor_nif = nif_adrian
+    emisor_info = EMISOR_PROFORMA
+    logo_path = obtener_logo_path()
+    if logo_path:
+        img_logo = Image(logo_path, width=120, height=55)
+        header_right = img_logo
+    else:
+        header_right = Paragraph("PRESUPUESTO", title_style)
 
     header_data = [
         [
             Paragraph("<b>SUAREZ SOUND</b><br/><font color='#64748b' size=8>Sonido e Iluminación | @suarez_sound</font>", normal_style),
-            Paragraph("PRESUPUESTO", title_style)
+            header_right
         ]
     ]
     header_table = Table(header_data, colWidths=[270, 270])
@@ -281,12 +307,16 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
         ('ALIGN', (1,0), (1,0), 'RIGHT')
     ]))
     story.append(header_table)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 10))
+
+    if logo_path:
+        story.append(Paragraph("<font color='#2563eb'><b>PRESUPUESTO</b></font>", title_style))
+        story.append(Spacer(1, 10))
 
     info_data = [
         [Paragraph("<b>EMISOR:</b>", bold_style), Paragraph("<b>CLIENTE:</b>", bold_style)],
         [
-            Paragraph(f"<b>{emisor_nombre}</b><br/>DNI/NIF: {emisor_nif}<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
+            Paragraph(f"<b>{emisor_info['nombre']}</b><br/>DNI/NIF: {emisor_info['nif']}<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
             Paragraph(f"{cliente_nombre}<br/>DNI/NIF: {cliente_nif or 'No especificado'}", normal_style)
         ]
     ]
@@ -360,22 +390,13 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     return buffer.getvalue()
 
 # ==========================================
-# NAVEGACIÓN LATERAL Y CONFIGURACIÓN EMISORES
+# NAVEGACIÓN LATERAL
 # ==========================================
 st.sidebar.markdown("<h2 style='text-align: center; color: #818cf8;'>🔊 Suárez Sound</h2>", unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("**👤 Datos Fiscales Facturas Oficiales**")
-emisor_fac_nombre = st.sidebar.text_input("Emisor Factura (Padre)", value="Carlos Suárez María")
-emisor_fac_nif = st.sidebar.text_input("DNI/NIF Padre", value="12345678X")
-
-st.sidebar.markdown("**👤 Datos Presupuestos / Proformas**")
-emisor_prof_nombre = st.sidebar.text_input("Emisor Proforma", value="Adrián Suárez")
-emisor_prof_nif = st.sidebar.text_input("DNI/NIF Adrián", value="87654321Y")
-
-st.sidebar.markdown("---")
 st.sidebar.markdown("**🖼️ Logo de la Empresa**")
-uploaded_logo = st.sidebar.file_uploader("Subir logo para la interfaz", type=["png", "jpg", "jpeg", "svg"])
+uploaded_logo = st.sidebar.file_uploader("Subir/Cambiar logo", type=["png", "jpg", "jpeg"])
 
 if uploaded_logo is not None:
     st.sidebar.image(uploaded_logo, use_container_width=True)
@@ -737,8 +758,6 @@ elif menu == "📋 Presupuestos":
                             fecha_generacion=fecha_pres,
                             validez_dias=validez,
                             notas=notas,
-                            nom_adrian=emisor_prof_nombre,
-                            nif_adrian=emisor_prof_nif,
                             total_final_custom=total_final_presupuesto
                         )
 
@@ -888,8 +907,6 @@ elif menu == "📋 Presupuestos":
                             fecha_generacion=p_selected["fecha_emision"],
                             validez_dias=p_selected["validez_dias"],
                             notas=p_selected.get("notas", ""),
-                            nom_adrian=emisor_prof_nombre,
-                            nif_adrian=emisor_prof_nif,
                             total_final_custom=p_selected["total"]
                         )
                         st.download_button(
@@ -1070,11 +1087,11 @@ elif menu == "➕ Registros / Facturas":
                 num_final = f"FAC-{siguiente_num}"
                 iva_calculado = total_servicios_base * 0.21
                 total_calculado = total_servicios_base + iva_calculado
-                st.info(f"💡 **Emisor:** {emisor_fac_nombre} | **Base:** {total_servicios_base:,.2f} € | **IVA (21%):** {iva_calculado:,.2f} € | **Total:** {total_calculado:,.2f} €")
+                st.info(f"💡 **Emisor:** {EMISOR_FACTURA['nombre']} | **Base:** {total_servicios_base:,.2f} € | **IVA (21%):** {iva_calculado:,.2f} € | **Total:** {total_calculado:,.2f} €")
             else:
                 num_final = f"REC-{siguiente_num}"
                 total_calculado = total_servicios_base
-                st.success(f"💡 **Emisor:** {emisor_prof_nombre} | **Total Neto:** {total_calculado:,.2f} € (Sin IVA)")
+                st.success(f"💡 **Emisor:** {EMISOR_PROFORMA['nombre']} | **Total Neto:** {total_calculado:,.2f} € (Sin IVA)")
 
             if st.button("🚀 Guardar Registro", use_container_width=True):
                 if total_servicios_base <= 0:
@@ -1111,10 +1128,7 @@ elif menu == "📄 Historial Trabajos":
     st.markdown("---")
     
     try:
-        try:
-            res = supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, items, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
-        except Exception:
-            res = supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
+        res = supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, items, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
         
         if res.data:
             raw_facturas = res.data
@@ -1122,7 +1136,7 @@ elif menu == "📄 Historial Trabajos":
             for item in raw_facturas:
                 es_fac = item["numero_factura"].startswith("FAC")
                 tipo_text = "Factura Oficial" if es_fac else "Proforma / Recibo"
-                emisor_text = emisor_fac_nombre if es_fac else emisor_prof_nombre
+                emisor_text = EMISOR_FACTURA["nombre"] if es_fac else EMISOR_PROFORMA["nombre"]
                 
                 filas.append({
                     "ID": item["id"],
@@ -1179,13 +1193,7 @@ elif menu == "📄 Historial Trabajos":
                 factura_obj = next((f for f in raw_facturas if f["numero_factura"] == factura_sel_pdf), None)
                 
                 if factura_obj:
-                    pdf_data = generar_pdf_documento(
-                        registro_info=factura_obj,
-                        nom_padre=emisor_fac_nombre,
-                        nif_padre=emisor_fac_nif,
-                        nom_adrian=emisor_prof_nombre,
-                        nif_adrian=emisor_prof_nif
-                    )
+                    pdf_data = generar_pdf_documento(registro_info=factura_obj)
                     st.download_button(
                         label=f"📄 Descargar {factura_sel_pdf}.pdf",
                         data=pdf_data,
