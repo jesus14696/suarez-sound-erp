@@ -164,7 +164,7 @@ def generar_pdf_documento(registro_info):
     info_data = [
         [Paragraph("<b>EMISOR:</b>", bold_style), Paragraph("<b>CLIENTE:</b>", bold_style)],
         [
-            Paragraph(f"Suarez Sound S.L.<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
+            Paragraph("Suarez Sound S.L.<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
             Paragraph(f"{nombre_cliente}<br/>DNI/NIF: {nif_cliente}<br/>Email: {email_cliente}<br/>Tel: {telefono_cliente}", normal_style)
         ]
     ]
