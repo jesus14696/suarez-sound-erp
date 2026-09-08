@@ -64,7 +64,7 @@ st.markdown("""
 # ==========================================
 EMISOR_FACTURA = {
     "nombre": "Carlos Suárez María",
-    "nif": "12345678X"
+    "nif": "03846691X"
 }
 
 EMISOR_PROFORMA = {
