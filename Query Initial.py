@@ -60,7 +60,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# CONEXIÓN A SUPABASE Y AUTENTICACIÓN GOOGLE
+# DATOS FISCALES EMISORES FIJOS
+# ==========================================
+EMISOR_FACTURA = {
+    "nombre": "Carlos Suárez María",
+    "nif": "12345678X"
+}
+
+EMISOR_PROFORMA = {
+    "nombre": "Adrián Suárez",
+    "nif": "87654321Y"
+}
+
+# ==========================================
+# CONEXIÓN A SUPABASE
 # ==========================================
 SUPABASE_URL = "https://igvireifhqgotfrfamvs.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlndmlyZWlmaHFnb3RmcmZhbXZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2ODE3MTcsImV4cCI6MjEwMzI1NzcxN30.UN_KFNPPgrf4TIIcqWHAENaOIFhCCYsWxSnJcngRZ_0"
