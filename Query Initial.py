@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client, Client
 
-# Módulo ReportLab para generación optimizada de PDFs con Imagen
+# Módulo ReportLab para generación de PDFs
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -109,7 +109,6 @@ def obtener_o_inicializar_productos():
     except Exception:
         return []
 
-# FUNCIÓN SEGURA PARA LEER FACTURAS SIN FALLAR SI FALTA LA COLUMNA ITEMS
 def obtener_facturas_seguro():
     try:
         return supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, items, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
@@ -117,15 +116,18 @@ def obtener_facturas_seguro():
         return supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
 
 # ==========================================
-# GENERADOR DE PDF CON REPORTLAB Y LOGO
+# OBTENER LOGO FIJO DEL PROYECTO
 # ==========================================
 def obtener_logo_path():
-    possible_paths = ["logo.png", "Logo Suarez Sound.jpeg", "logo.jpg"]
+    possible_paths = ["logo.png", "logo.jpg", "logo.jpeg", "Logo Suarez Sound.jpeg"]
     for path in possible_paths:
         if os.path.exists(path):
             return path
     return None
 
+# ==========================================
+# GENERADOR DE PDF PARA FACTURAS Y PROFORMAS
+# ==========================================
 def generar_pdf_documento(registro_info):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -147,7 +149,6 @@ def generar_pdf_documento(registro_info):
 
     num_doc = registro_info.get("numero_factura", "DOC-0000")
     es_factura = num_doc.startswith("FAC")
-    
     emisor_info = EMISOR_FACTURA if es_factura else EMISOR_PROFORMA
 
     story = []
@@ -213,7 +214,7 @@ def generar_pdf_documento(registro_info):
         Paragraph("<b>Total</b>", bold_style)
     ]]
 
-    if items and isinstance(items, list) and len(items) > 0:
+    if isinstance(items, list) and len(items) > 0:
         for item in items:
             prod = item.get("producto", "Servicio Técnico")
             cant = item.get("cantidad", 1)
@@ -273,7 +274,9 @@ def generar_pdf_documento(registro_info):
     doc.build(story)
     return buffer.getvalue()
 
-
+# ==========================================
+# GENERADOR DE PDF PARA PRESUPUESTOS
+# ==========================================
 def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas, total_final_custom=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -294,9 +297,9 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, textColor=colors.HexColor('#2563eb'), alignment=2)
 
     story = []
-
     emisor_info = EMISOR_PROFORMA
     logo_path = obtener_logo_path()
+    
     if logo_path:
         img_logo = Image(logo_path, width=120, height=55)
         header_right = img_logo
@@ -398,20 +401,11 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     return buffer.getvalue()
 
 # ==========================================
-# NAVEGACIÓN LATERAL
+# NAVEGACIÓN LATERAL (SIN CARGADOR DE LOGO)
 # ==========================================
 st.sidebar.markdown("<h2 style='text-align: center; color: #818cf8;'>🔊 Suárez Sound</h2>", unsafe_allow_html=True)
-
 st.sidebar.markdown("---")
-st.sidebar.markdown("**🖼️ Logo de la Empresa**")
-uploaded_logo = st.sidebar.file_uploader("Subir/Cambiar logo", type=["png", "jpg", "jpeg"])
 
-if uploaded_logo is not None:
-    st.sidebar.image(uploaded_logo, use_container_width=True)
-    with open("logo.png", "wb") as f:
-        f.write(uploaded_logo.getbuffer())
-
-st.sidebar.markdown("---")
 menu = st.sidebar.radio(
     "Menú Principal", 
     ["📊 Dashboard KPI", "📅 Calendario Eventos", "📈 Analítica y Gráficas", "📋 Presupuestos", "👤 CRM Clientes", "➕ Registros / Facturas", "📄 Historial Trabajos", "💸 Gastos"]
@@ -893,12 +887,7 @@ elif menu == "📋 Presupuestos":
                                         "items": items_presupuesto
                                     }
                                     
-                                try:
-                                    supabase.table("facturas").insert(data_fac_auto).execute()
-                                except Exception:
-                                    data_fac_auto.pop("items", None)
-                                    supabase.table("facturas").insert(data_fac_auto).execute()
-
+                                supabase.table("facturas").insert(data_fac_auto).execute()
                                 st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado!")
                         st.rerun()
 
@@ -1114,11 +1103,7 @@ elif menu == "➕ Registros / Facturas":
                         "estado": estado_inicial,
                         "items": st.session_state.items_factura_directa
                     }
-                    try:
-                        supabase.table("facturas").insert(data_factura).execute()
-                    except Exception:
-                        data_factura.pop("items", None)
-                        supabase.table("facturas").insert(data_factura).execute()
+                    supabase.table("facturas").insert(data_factura).execute()
 
                     st.session_state.items_factura_directa = []
                     st.success(f"Registro '{num_final}' guardado con éxito por {total_calculado:,.2f} €.")
