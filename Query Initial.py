@@ -100,7 +100,7 @@ if st.session_state.user is None:
     # redirect_url = "http://localhost:8501/"
     
     # Por esto:
-    redirect_url = "https://suarez-sound-erp-t6ikblizfhcnhxxsbautcj.streamlit.app/"
+    redirect_url = "https://suarez-sound-erp-t6ikblizfhcnhxxsbautcj.streamlit.app"
     
     try:
         res = supabase.auth.sign_in_with_oauth({
