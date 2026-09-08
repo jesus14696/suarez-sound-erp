@@ -5,7 +5,12 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client, Client
-from fpdf import FPDF
+
+# Módulo ReportLab para generación optimizada de PDFs
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 # ==========================================
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
@@ -93,45 +98,41 @@ def obtener_o_inicializar_productos():
         return []
 
 # ==========================================
-# GENERADOR DE PDF (CORREGIDO Y OPTIMIZADO)
+# GENERADOR DE PDF CON REPORTLAB
 # ==========================================
-class InvoicePDF(FPDF):
-    def header(self):
-        logo_path = None
-        for ext in ["logo.png", "logo.jpg", "logo.jpeg"]:
-            if os.path.exists(ext):
-                logo_path = ext
-                break
-
-        if logo_path:
-            self.image(logo_path, x=150, y=8, w=45)
-
-        self.set_x(10)
-        self.set_font("Helvetica", "B", 18)
-        self.set_text_color(30, 41, 59)
-        self.cell(110, 8, "SUAREZ SOUND", ln=True)
-        
-        self.set_font("Helvetica", "", 9)
-        self.set_text_color(100, 116, 139)
-        self.cell(110, 5, "Sonido e Iluminacion | Instagram: @suarez_sound", ln=True)
-        
-        # Salto de línea para bajar el título de la proforma/factura y no solapar con el logo
-        self.ln(12)
-
-        self.set_font("Helvetica", "B", 13)
-        self.set_text_color(37, 99, 235)
-        doc_title = getattr(self, 'doc_title', 'COMPROBANTE')
-        self.cell(0, 8, doc_title, ln=True, align="R")
-        
-        self.ln(4)
-
-    def footer(self):
-        self.set_y(-15)
-        self.set_font("Helvetica", "I", 8)
-        self.set_text_color(148, 163, 184)
-        self.cell(0, 10, "Suarez Sound - Tel: 633 61 08 28 / 669 87 90 78", align="C")
-
 def generar_pdf_documento(registro_info):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36
+    )
+    
+    styles = getSampleStyleSheet()
+    normal_style = styles['Normal']
+    normal_style.fontSize = 9
+    normal_style.leading = 11
+    
+    bold_style = ParagraphStyle(
+        'BoldStyle',
+        parent=normal_style,
+        fontName='Helvetica-Bold'
+    )
+    
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=16,
+        textColor=colors.HexColor('#2563eb'),
+        alignment=2
+    )
+
+    story = []
+    
     num_doc = registro_info.get("numero_factura", "DOC-0000")
     es_factura = num_doc.startswith("FAC")
     fecha = str(registro_info.get("fecha_emision", date.today()))
@@ -144,123 +145,172 @@ def generar_pdf_documento(registro_info):
     email_cliente = cliente_data.get("email") or "No especificado"
     telefono_cliente = cliente_data.get("telefono") or "No especificado"
 
-    pdf = InvoicePDF()
-    pdf.doc_title = "FACTURA OFICIAL" if es_factura else "FACTURA PROFORMA"
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    doc_title = "FACTURA OFICIAL" if es_factura else "FACTURA PROFORMA"
     
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.set_text_color(15, 23, 42)
-    pdf.cell(95, 6, "EMISOR:", ln=False)
-    pdf.cell(95, 6, "CLIENTE:", ln=True)
-    
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(51, 65, 85)
-    pdf.cell(95, 5, "Suarez Sound S.L.", ln=False)
-    pdf.cell(95, 5, f"{nombre_cliente}", ln=True)
-    
-    pdf.cell(95, 5, "Tel: 633 61 08 28 / 669 87 90 78", ln=False)
-    pdf.cell(95, 5, f"DNI/NIF: {nif_cliente}", ln=True)
-    
-    pdf.cell(95, 5, "IG: @suarez_sound", ln=False)
-    pdf.cell(95, 5, f"Email: {email_cliente}", ln=True)
-    
-    pdf.cell(95, 5, "", ln=False)
-    pdf.cell(95, 5, f"Tel: {telefono_cliente}", ln=True)
-    
-    pdf.ln(8)
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(0, 6, f"Numero de Documento: {num_doc}   |   Fecha de Emision: {fecha}", ln=True)
-    pdf.ln(6)
-    
-    pdf.set_fill_color(248, 250, 252)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(95, 8, "Descripcion del Servicio / Producto", border=1, fill=True)
-    pdf.cell(25, 8, "Cant.", border=1, align="C", fill=True)
-    pdf.cell(35, 8, "Precio Un.", border=1, align="R", fill=True)
-    pdf.cell(35, 8, "Total", border=1, align="R", fill=True, ln=True)
-    
-    pdf.set_font("Helvetica", "", 9)
-    
+    header_data = [
+        [
+            Paragraph("<b>SUAREZ SOUND</b><br/><font color='#64748b' size=8>Sonido e Iluminación | @suarez_sound</font>", normal_style),
+            Paragraph(doc_title, title_style)
+        ]
+    ]
+    header_table = Table(header_data, colWidths=[270, 270])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (1,0), (1,0), 'RIGHT')
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 15))
+
+    info_data = [
+        [Paragraph("<b>EMISOR:</b>", bold_style), Paragraph("<b>CLIENTE:</b>", bold_style)],
+        [
+            Paragraph(f"Suarez Sound S.L.<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
+            Paragraph(f"{nombre_cliente}<br/>DNI/NIF: {nif_cliente}<br/>Email: {email_cliente}<br/>Tel: {telefono_cliente}", normal_style)
+        ]
+    ]
+    info_table = Table(info_data, colWidths=[270, 270])
+    info_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2)
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 15))
+
+    story.append(Paragraph(f"<b>Número de Documento:</b> {num_doc} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Fecha de Emisión:</b> {fecha}", normal_style))
+    story.append(Spacer(1, 10))
+
+    table_data = [[
+        Paragraph("<b>Descripción del Servicio / Producto</b>", bold_style),
+        Paragraph("<b>Cant.</b>", bold_style),
+        Paragraph("<b>Precio Un.</b>", bold_style),
+        Paragraph("<b>Total</b>", bold_style)
+    ]]
+
     if items:
         for item in items:
             prod = item.get("producto", "Servicio Técnico")
             cant = item.get("cantidad", 1)
             pu = float(item.get("precio_unitario", total))
             subtotal = float(item.get("subtotal", cant * pu))
-            
-            pdf.cell(95, 8, prod, border=1)
-            pdf.cell(25, 8, str(cant), border=1, align="C")
-            pdf.cell(35, 8, f"{pu:,.2f} EUR", border=1, align="R")
-            pdf.cell(35, 8, f"{subtotal:,.2f} EUR", border=1, align="R", ln=True)
+            table_data.append([
+                Paragraph(prod, normal_style),
+                Paragraph(str(cant), normal_style),
+                Paragraph(f"{pu:,.2f} EUR", normal_style),
+                Paragraph(f"{subtotal:,.2f} EUR", normal_style)
+            ])
     else:
-        pdf.cell(95, 8, "Servicios tecnicos de sonorizacion y montaje", border=1)
-        pdf.cell(25, 8, "1", border=1, align="C")
-        pdf.cell(35, 8, f"{total:,.2f} EUR", border=1, align="R")
-        pdf.cell(35, 8, f"{total:,.2f} EUR", border=1, align="R", ln=True)
+        table_data.append([
+            Paragraph("Servicios técnicos de sonorización y montaje", normal_style),
+            Paragraph("1", normal_style),
+            Paragraph(f"{total:,.2f} EUR", normal_style),
+            Paragraph(f"{total:,.2f} EUR", normal_style)
+        ])
 
-    pdf.ln(6)
-    
+    items_table = Table(table_data, colWidths=[270, 60, 105, 105])
+    items_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f8fafc')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+        ('ALIGN', (1,0), (1,-1), 'CENTER'),
+        ('ALIGN', (2,0), (-1,-1), 'RIGHT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(items_table)
+    story.append(Spacer(1, 15))
+
+    totales_data = []
     if es_factura:
         base_imponible = total / 1.21
         iva = total - base_imponible
-        
-        pdf.cell(120, 6, "", ln=False)
-        pdf.cell(35, 6, "Base Imponible:", ln=False)
-        pdf.cell(35, 6, f"{base_imponible:,.2f} EUR", align="R", ln=True)
-        
-        pdf.cell(120, 6, "", ln=False)
-        pdf.cell(35, 6, "IVA (21%):", ln=False)
-        pdf.cell(35, 6, f"{iva:,.2f} EUR", align="R", ln=True)
-        
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(120, 8, "", ln=False)
-        pdf.cell(35, 8, "TOTAL FACTURA:", ln=False)
-        pdf.cell(35, 8, f"{total:,.2f} EUR", align="R", ln=True)
+        totales_data = [
+            ["", "Base Imponible:", f"{base_imponible:,.2f} EUR"],
+            ["", "IVA (21%):", f"{iva:,.2f} EUR"],
+            ["", "TOTAL FACTURA:", f"{total:,.2f} EUR"]
+        ]
     else:
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(120, 8, "", ln=False)
-        pdf.cell(35, 8, "TOTAL NETO:", ln=False)
-        pdf.cell(35, 8, f"{total:,.2f} EUR", align="R", ln=True)
-    
-    return bytes(pdf.output())
+        totales_data = [
+            ["", "TOTAL NETO:", f"{total:,.2f} EUR"]
+        ]
+
+    totales_table = Table(totales_data, colWidths=[270, 135, 135])
+    totales_table.setStyle(TableStyle([
+        ('ALIGN', (1,0), (-1,-1), 'RIGHT'),
+        ('FONTNAME', (1,-1), (-1,-1), 'Helvetica-Bold'),
+        ('FONTSIZE', (1,-1), (-1,-1), 10),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+    ]))
+    story.append(totales_table)
+
+    doc.build(story)
+    return buffer.getvalue()
+
 
 def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas, total_final_custom=None):
-    pdf = InvoicePDF()
-    pdf.doc_title = "PRESUPUESTO"
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36
+    )
     
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.set_text_color(15, 23, 42)
-    pdf.cell(95, 6, "EMISOR:", ln=False)
-    pdf.cell(95, 6, "CLIENTE:", ln=True)
+    styles = getSampleStyleSheet()
+    normal_style = styles['Normal']
+    normal_style.fontSize = 9
+    normal_style.leading = 11
     
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(51, 65, 85)
-    pdf.cell(95, 5, "Suarez Sound S.L.", ln=False)
-    pdf.cell(95, 5, f"{cliente_nombre}", ln=True)
-    
-    pdf.cell(95, 5, "Tel: 633 61 08 28 / 669 87 90 78", ln=False)
-    pdf.cell(95, 5, f"DNI/NIF: {cliente_nif or 'No especificado'}", ln=True)
-    pdf.cell(95, 5, "IG: @suarez_sound", ln=True)
-    
-    pdf.ln(8)
-    pdf.set_font("Helvetica", "B", 10)
+    bold_style = ParagraphStyle('BoldStyle', parent=normal_style, fontName='Helvetica-Bold')
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=16, textColor=colors.HexColor('#2563eb'), alignment=2)
+
+    story = []
+
+    header_data = [
+        [
+            Paragraph("<b>SUAREZ SOUND</b><br/><font color='#64748b' size=8>Sonido e Iluminación | @suarez_sound</font>", normal_style),
+            Paragraph("PRESUPUESTO", title_style)
+        ]
+    ]
+    header_table = Table(header_data, colWidths=[270, 270])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (1,0), (1,0), 'RIGHT')
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 15))
+
+    info_data = [
+        [Paragraph("<b>EMISOR:</b>", bold_style), Paragraph("<b>CLIENTE:</b>", bold_style)],
+        [
+            Paragraph("Suarez Sound S.L.<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
+            Paragraph(f"{cliente_nombre}<br/>DNI/NIF: {cliente_nif or 'No especificado'}", normal_style)
+        ]
+    ]
+    info_table = Table(info_data, colWidths=[270, 270])
+    info_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2)
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 15))
+
     fecha_dt = date.fromisoformat(str(fecha_generacion))
     fecha_validez = fecha_dt + timedelta(days=validez_dias)
-    pdf.cell(0, 6, f"Numero Presupuesto: {num_presupuesto}", ln=True)
-    pdf.cell(0, 6, f"Fecha de Generacion: {fecha_dt.strftime('%d/%m/%Y')}   |   Valido hasta: {fecha_validez.strftime('%d/%m/%Y')}", ln=True)
-    pdf.ln(6)
     
-    pdf.set_fill_color(248, 250, 252)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(95, 8, "Producto / Servicio / Equipamiento", border=1, fill=True)
-    pdf.cell(25, 8, "Cant.", border=1, align="C", fill=True)
-    pdf.cell(35, 8, "Precio Un.", border=1, align="R", fill=True)
-    pdf.cell(35, 8, "Total", border=1, align="R", fill=True, ln=True)
-    
-    pdf.set_font("Helvetica", "", 9)
+    story.append(Paragraph(f"<b>Número Presupuesto:</b> {num_presupuesto}", normal_style))
+    story.append(Paragraph(f"<b>Fecha de Generación:</b> {fecha_dt.strftime('%d/%m/%Y')} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Válido hasta:</b> {fecha_validez.strftime('%d/%m/%Y')}", normal_style))
+    story.append(Spacer(1, 10))
+
+    table_data = [[
+        Paragraph("<b>Producto / Servicio / Equipamiento</b>", bold_style),
+        Paragraph("<b>Cant.</b>", bold_style),
+        Paragraph("<b>Precio Un.</b>", bold_style),
+        Paragraph("<b>Total</b>", bold_style)
+    ]]
+
     total_calculado = 0.0
     for item in items:
         prod = item["producto"]
@@ -269,27 +319,44 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
         subtotal = cant * pu
         total_calculado += subtotal
         
-        pdf.cell(95, 8, prod, border=1)
-        pdf.cell(25, 8, str(cant), border=1, align="C")
-        pdf.cell(35, 8, f"{pu:,.2f} EUR", border=1, align="R")
-        pdf.cell(35, 8, f"{subtotal:,.2f} EUR", border=1, align="R", ln=True)
-        
+        table_data.append([
+            Paragraph(prod, normal_style),
+            Paragraph(str(cant), normal_style),
+            Paragraph(f"{pu:,.2f} EUR", normal_style),
+            Paragraph(f"{subtotal:,.2f} EUR", normal_style)
+        ])
+
+    items_table = Table(table_data, colWidths=[270, 60, 105, 105])
+    items_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f8fafc')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+        ('ALIGN', (1,0), (1,-1), 'CENTER'),
+        ('ALIGN', (2,0), (-1,-1), 'RIGHT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(items_table)
+    story.append(Spacer(1, 15))
+
     total_imprimir = total_final_custom if total_final_custom is not None else total_calculado
-
-    pdf.ln(6)
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(120, 8, "", ln=False)
-    pdf.cell(35, 8, "TOTAL ESTIMADO:", ln=False)
-    pdf.cell(35, 8, f"{total_imprimir:,.2f} EUR", align="R", ln=True)
     
-    if notas:
-        pdf.ln(8)
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(0, 5, "Notas y Condiciones:", ln=True)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.multi_cell(0, 4, notas)
+    totales_data = [["", "TOTAL ESTIMADO:", f"{total_imprimir:,.2f} EUR"]]
+    totales_table = Table(totales_data, colWidths=[270, 135, 135])
+    totales_table.setStyle(TableStyle([
+        ('ALIGN', (1,0), (-1,-1), 'RIGHT'),
+        ('FONTNAME', (1,-1), (-1,-1), 'Helvetica-Bold'),
+        ('FONTSIZE', (1,-1), (-1,-1), 10),
+    ]))
+    story.append(totales_table)
 
-    return bytes(pdf.output())
+    if notas:
+        story.append(Spacer(1, 15))
+        story.append(Paragraph("<b>Notas y Condiciones:</b>", bold_style))
+        story.append(Paragraph(notas.replace('\n', '<br/>'), normal_style))
+
+    doc.build(story)
+    return buffer.getvalue()
 
 # ==========================================
 # NAVEGACIÓN LATERAL Y LOGO
@@ -389,7 +456,7 @@ if menu == "📊 Dashboard KPI":
         st.error(f"Error al cargar datos del Dashboard: {err}")
 
 # ==========================================
-# SECCIÓN: CALENDARIO DE EVENTOS (FILTRADO DESDE DÍA ACTUAL)
+# SECCIÓN: CALENDARIO DE EVENTOS
 # ==========================================
 elif menu == "📅 Calendario Eventos":
     st.title("📅 Calendario de Eventos")
@@ -422,7 +489,6 @@ elif menu == "📅 Calendario Eventos":
             with col_c2:
                 st.subheader("📋 Próximos Eventos")
                 
-                # FILTRAR EVENTOS: Solo desde el día actual en adelante
                 hoy_str = str(date.today())
                 df_proximos = df_eventos[df_eventos["fecha_emision"] >= hoy_str]
                 
@@ -790,7 +856,6 @@ elif menu == "📋 Presupuestos":
                                 try:
                                     supabase.table("facturas").insert(data_fac_auto).execute()
                                 except Exception:
-                                    # Fallback si no existe la columna items en la tabla facturas
                                     data_fac_auto.pop("items", None)
                                     supabase.table("facturas").insert(data_fac_auto).execute()
 
