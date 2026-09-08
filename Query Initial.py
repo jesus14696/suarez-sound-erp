@@ -96,7 +96,11 @@ if st.session_state.user is None:
     st.write("Por favor, inicia sesión con tu cuenta autorizada para continuar en el sistema.")
     
     # URL de redirección (cámbiala por tu dominio en producción cuando lo despliegues)
-    redirect_url = "http://localhost:8501/"
+    # Cambia esto:
+    # redirect_url = "http://localhost:8501/"
+    
+    # Por esto:
+    redirect_url = "https://suarez-sound-erp-t6ikblizfhcnhxxsbautcj.streamlit.app/"
     
     try:
         res = supabase.auth.sign_in_with_oauth({
