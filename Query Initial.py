@@ -98,9 +98,16 @@ def obtener_o_inicializar_productos():
         return []
 
 # ==========================================
-# GENERADOR DE PDF CON REPORTLAB
+# GENERADOR DE PDF CON REPORTLAB (EMISOR DINÁMICO)
 # ==========================================
-def generar_pdf_documento(registro_info):
+def obtener_datos_emisor(es_factura_oficial, emisor_factura_nom, emisor_factura_nif, emisor_proforma_nom, emisor_proforma_nif):
+    """Determina si emite el padre (Factura Oficial) o Adrián (Proforma/Presupuesto)"""
+    if es_factura_oficial:
+        return emisor_factura_nom, emisor_factura_nif
+    else:
+        return emisor_proforma_nom, emisor_proforma_nif
+
+def generar_pdf_documento(registro_info, nom_padre, nif_padre, nom_adrian, nif_adrian):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -116,25 +123,16 @@ def generar_pdf_documento(registro_info):
     normal_style.fontSize = 9
     normal_style.leading = 11
     
-    bold_style = ParagraphStyle(
-        'BoldStyle',
-        parent=normal_style,
-        fontName='Helvetica-Bold'
-    )
-    
-    title_style = ParagraphStyle(
-        'TitleStyle',
-        parent=styles['Heading1'],
-        fontName='Helvetica-Bold',
-        fontSize=16,
-        textColor=colors.HexColor('#2563eb'),
-        alignment=2
-    )
+    bold_style = ParagraphStyle('BoldStyle', parent=normal_style, fontName='Helvetica-Bold')
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=16, textColor=colors.HexColor('#2563eb'), alignment=2)
 
-    story = []
-    
     num_doc = registro_info.get("numero_factura", "DOC-0000")
     es_factura = num_doc.startswith("FAC")
+    
+    # Asignación dinámica de Emisor
+    emisor_nombre, emisor_nif = obtener_datos_emisor(es_factura, nom_padre, nif_padre, nom_adrian, nif_adrian)
+
+    story = []
     fecha = str(registro_info.get("fecha_emision", date.today()))
     total = float(registro_info.get("total", 0.0))
     items = registro_info.get("items") or []
@@ -164,7 +162,7 @@ def generar_pdf_documento(registro_info):
     info_data = [
         [Paragraph("<b>EMISOR:</b>", bold_style), Paragraph("<b>CLIENTE:</b>", bold_style)],
         [
-            Paragraph("Suarez Sound S.L.<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
+            Paragraph(f"<b>{emisor_nombre}</b><br/>DNI/NIF: {emisor_nif}<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
             Paragraph(f"{nombre_cliente}<br/>DNI/NIF: {nif_cliente}<br/>Email: {email_cliente}<br/>Tel: {telefono_cliente}", normal_style)
         ]
     ]
@@ -219,7 +217,6 @@ def generar_pdf_documento(registro_info):
     story.append(items_table)
     story.append(Spacer(1, 15))
 
-    totales_data = []
     if es_factura:
         base_imponible = total / 1.21
         iva = total - base_imponible
@@ -247,7 +244,7 @@ def generar_pdf_documento(registro_info):
     return buffer.getvalue()
 
 
-def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas, total_final_custom=None):
+def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto, fecha_generacion, validez_dias, notas, nom_adrian, nif_adrian, total_final_custom=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -268,6 +265,10 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
 
     story = []
 
+    # Los presupuestos siempre los emite Adrián Suárez
+    emisor_nombre = nom_adrian
+    emisor_nif = nif_adrian
+
     header_data = [
         [
             Paragraph("<b>SUAREZ SOUND</b><br/><font color='#64748b' size=8>Sonido e Iluminación | @suarez_sound</font>", normal_style),
@@ -285,7 +286,7 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     info_data = [
         [Paragraph("<b>EMISOR:</b>", bold_style), Paragraph("<b>CLIENTE:</b>", bold_style)],
         [
-            Paragraph("Suarez Sound S.L.<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
+            Paragraph(f"<b>{emisor_nombre}</b><br/>DNI/NIF: {emisor_nif}<br/>Tel: 633 61 08 28 / 669 87 90 78<br/>IG: @suarez_sound", normal_style),
             Paragraph(f"{cliente_nombre}<br/>DNI/NIF: {cliente_nif or 'No especificado'}", normal_style)
         ]
     ]
@@ -359,9 +360,18 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     return buffer.getvalue()
 
 # ==========================================
-# NAVEGACIÓN LATERAL Y LOGO
+# NAVEGACIÓN LATERAL Y CONFIGURACIÓN EMISORES
 # ==========================================
 st.sidebar.markdown("<h2 style='text-align: center; color: #818cf8;'>🔊 Suárez Sound</h2>", unsafe_allow_html=True)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**👤 Datos Fiscales Facturas Oficiales**")
+emisor_fac_nombre = st.sidebar.text_input("Emisor Factura (Padre)", value="Carlos Suárez María")
+emisor_fac_nif = st.sidebar.text_input("DNI/NIF Padre", value="12345678X")
+
+st.sidebar.markdown("**👤 Datos Presupuestos / Proformas**")
+emisor_prof_nombre = st.sidebar.text_input("Emisor Proforma", value="Adrián Suárez")
+emisor_prof_nif = st.sidebar.text_input("DNI/NIF Adrián", value="87654321Y")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**🖼️ Logo de la Empresa**")
@@ -371,8 +381,6 @@ if uploaded_logo is not None:
     st.sidebar.image(uploaded_logo, use_container_width=True)
     with open("logo.png", "wb") as f:
         f.write(uploaded_logo.getbuffer())
-else:
-    st.sidebar.caption("Sube el logo de la empresa para guardarlo en PDF e interfaz.")
 
 st.sidebar.markdown("---")
 menu = st.sidebar.radio(
@@ -382,6 +390,9 @@ menu = st.sidebar.radio(
 
 if "items_presupuesto" not in st.session_state:
     st.session_state.items_presupuesto = []
+
+if "items_factura_directa" not in st.session_state:
+    st.session_state.items_factura_directa = []
 
 # ==========================================
 # SECCIÓN: DASHBOARD KPI
@@ -726,6 +737,8 @@ elif menu == "📋 Presupuestos":
                             fecha_generacion=fecha_pres,
                             validez_dias=validez,
                             notas=notas,
+                            nom_adrian=emisor_prof_nombre,
+                            nif_adrian=emisor_prof_nif,
                             total_final_custom=total_final_presupuesto
                         )
 
@@ -802,7 +815,7 @@ elif menu == "📋 Presupuestos":
                         st.info("Presupuesto Aceptado. Elige cómo deseas registrarlo:")
                         tipo_doc_aceptado = st.radio(
                             "¿Cómo vas a emitir este trabajo?",
-                            ["No (Proforma / Recibo sin IVA)", "Sí (Factura Oficial + 21% IVA)"],
+                            ["No (Proforma / Recibo sin IVA - Emite Adrián)", "Sí (Factura Oficial + 21% IVA - Emite Carlos Padre)"],
                             key="rad_aceptado"
                         )
                     
@@ -832,7 +845,7 @@ elif menu == "📋 Presupuestos":
                                 if "Sí" in tipo_doc_aceptado:
                                     num_doc_nuevo = f"FAC-{seq_str}"
                                     total_con_iva = total_presupuesto * 1.21
-                                    st.info(f"Generando Factura Oficial `{num_doc_nuevo}` por `{total_con_iva:,.2f} €` (con 21% IVA)...")
+                                    st.info(f"Generando Factura Oficial `{num_doc_nuevo}` (Emisor: Carlos Suárez)...")
                                     data_fac_auto = {
                                         "numero_factura": num_doc_nuevo,
                                         "cliente_id": p_obj["cliente_id"],
@@ -843,7 +856,7 @@ elif menu == "📋 Presupuestos":
                                     }
                                 else:
                                     num_doc_nuevo = f"REC-{seq_str}"
-                                    st.info(f"Generando Proforma/Recibo `{num_doc_nuevo}` por `{total_presupuesto:,.2f} €`...")
+                                    st.info(f"Generando Proforma/Recibo `{num_doc_nuevo}` (Emisor: Adrián Suárez)...")
                                     data_fac_auto = {
                                         "numero_factura": num_doc_nuevo,
                                         "cliente_id": p_obj["cliente_id"],
@@ -859,7 +872,7 @@ elif menu == "📋 Presupuestos":
                                     data_fac_auto.pop("items", None)
                                     supabase.table("facturas").insert(data_fac_auto).execute()
 
-                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado y registrado con sus productos!")
+                                st.success(f"✅ ¡Documento '{num_doc_nuevo}' generado!")
                         st.rerun()
 
                 with col_e2:
@@ -870,11 +883,13 @@ elif menu == "📋 Presupuestos":
                         pdf_h = generar_pdf_presupuesto(
                             cliente_nombre=cli_data.get("nombre", "Cliente General"),
                             cliente_nif=cli_data.get("nif", ""),
-                            items=p_selected["items"],
+                            items=p_selected.get("items") or [],
                             num_presupuesto=p_selected["numero_presupuesto"],
                             fecha_generacion=p_selected["fecha_emision"],
                             validez_dias=p_selected["validez_dias"],
                             notas=p_selected.get("notas", ""),
+                            nom_adrian=emisor_prof_nombre,
+                            nif_adrian=emisor_prof_nif,
                             total_final_custom=p_selected["total"]
                         )
                         st.download_button(
@@ -973,13 +988,15 @@ elif menu == "👤 CRM Clientes":
 # SECCIÓN: REGISTRAR TRABAJO / FACTURA
 # ==========================================
 elif menu == "➕ Registros / Facturas":
-    st.title("➕ Crear Registro de Servicio / Factura")
-    st.markdown("Registra un trabajo para un cliente.")
+    st.title("➕ Crear Registro de Servicio / Factura Directa")
+    st.markdown("Registra un trabajo para un cliente agregando servicios desglosados o un importe global.")
     st.markdown("---")
     
     try:
         res_clientes = supabase.table("clientes").select("id, nombre").order("nombre").execute()
         clientes = res_clientes.data
+        lista_productos_db = obtener_o_inicializar_productos()
+        nombres_productos = [p["nombre"] for p in lista_productos_db]
         
         if not clientes:
             st.warning("⚠️ Primero debes dar de alta al menos un cliente en 'CRM Clientes'.")
@@ -1000,25 +1017,67 @@ elif menu == "➕ Registros / Facturas":
             col_a, col_b = st.columns(2)
             with col_a:
                 cliente_sel = st.selectbox("Seleccionar Cliente *", list(dict_clientes.keys()))
-                quiere_factura = st.radio("¿Requiere Factura Oficial?", ["No (Proforma / Recibo sin IVA)", "Sí (Factura Oficial + 21% IVA)"])
-                fecha_emision = st.date_input("Fecha de Emisión", value=date.today())
-                
+                quiere_factura = st.radio("¿Tipo de Documento y Emisor?", ["Proforma / Recibo (Emite Adrián Suárez)", "Factura Oficial + 21% IVA (Emite Carlos Suárez María)"])
             with col_b:
-                importe_base = st.number_input("Importe Base del Servicio (€) *", min_value=0.0, step=10.0, format="%.2f")
+                fecha_emision = st.date_input("Fecha de Emisión", value=date.today())
                 estado_inicial = st.selectbox("Estado del Cobro", ["Pendiente", "Cobrada"])
-                
-                if "Sí" in quiere_factura:
-                    num_final = f"FAC-{siguiente_num}"
-                    iva_calculado = importe_base * 0.21
-                    total_calculado = importe_base + iva_calculado
-                    st.info(f"💡 **Base:** {importe_base:,.2f} € | **IVA (21%):** {iva_calculado:,.2f} € | **Total Factura:** {total_calculado:,.2f} €")
-                else:
-                    num_final = f"REC-{siguiente_num}"
-                    total_calculado = importe_base
-                    st.success(f"💡 **Total Neto Proforma:** {total_calculado:,.2f} € (Sin IVA)")
+
+            st.markdown("---")
+            st.subheader("🛠️ Desglose de Servicios Contratados")
+
+            col_i1, col_i2, col_i3, col_i4 = st.columns([3, 1, 1.5, 1])
+            with col_i1:
+                prod_sel_f = st.selectbox("Producto / Servicio", nombres_productos, key="f_prod_sel")
+            with col_i2:
+                cant_prod_f = st.number_input("Cantidad", min_value=1, value=1, key="f_cant_prod")
+            with col_i3:
+                precio_unit_f = st.number_input("Precio Unitario (€)", min_value=0.0, value=100.0, step=10.0, format="%.2f", key="f_precio_prod")
+            with col_i4:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("➕ Agregar Línea", use_container_width=True):
+                    st.session_state.items_factura_directa.append({
+                        "producto": prod_sel_f,
+                        "cantidad": cant_prod_f,
+                        "precio_unitario": precio_unit_f,
+                        "subtotal": cant_prod_f * precio_unit_f
+                    })
+                    st.rerun()
+
+            total_servicios_base = 0.0
+            if st.session_state.items_factura_directa:
+                st.markdown("#### Líneas del Documento:")
+                indices_a_borrar_f = []
+                for idx, item in enumerate(st.session_state.items_factura_directa):
+                    c1, c2, c3, c4, c5 = st.columns([3, 1, 1.5, 1.5, 0.8])
+                    c1.text(item["producto"])
+                    c2.text(str(item["cantidad"]))
+                    c3.text(f"{item['precio_unitario']:,.2f} €")
+                    c4.text(f"{item['subtotal']:,.2f} €")
+                    total_servicios_base += item["subtotal"]
+                    if c5.button("❌", key=f"del_f_line_{idx}"):
+                        indices_a_borrar_f.append(idx)
+
+                if indices_a_borrar_f:
+                    for index in sorted(indices_a_borrar_f, reverse=True):
+                        st.session_state.items_factura_directa.pop(index)
+                    st.rerun()
+            else:
+                st.info("Opcional: Si no agregas líneas específicas arriba, se asignará un importe global.")
+                total_servicios_base = st.number_input("Importe Base Global (€)", min_value=0.0, value=0.0, step=10.0, format="%.2f")
+
+            st.markdown("---")
+            if "Factura Oficial" in quiere_factura:
+                num_final = f"FAC-{siguiente_num}"
+                iva_calculado = total_servicios_base * 0.21
+                total_calculado = total_servicios_base + iva_calculado
+                st.info(f"💡 **Emisor:** {emisor_fac_nombre} | **Base:** {total_servicios_base:,.2f} € | **IVA (21%):** {iva_calculado:,.2f} € | **Total:** {total_calculado:,.2f} €")
+            else:
+                num_final = f"REC-{siguiente_num}"
+                total_calculado = total_servicios_base
+                st.success(f"💡 **Emisor:** {emisor_prof_nombre} | **Total Neto:** {total_calculado:,.2f} € (Sin IVA)")
 
             if st.button("🚀 Guardar Registro", use_container_width=True):
-                if importe_base <= 0:
+                if total_servicios_base <= 0:
                     st.error("Introduce un importe válido mayor que 0.")
                 else:
                     cliente_id = dict_clientes[cliente_sel]
@@ -1027,10 +1086,17 @@ elif menu == "➕ Registros / Facturas":
                         "cliente_id": cliente_id,
                         "fecha_emision": str(fecha_emision),
                         "total": total_calculado,
-                        "estado": estado_inicial
+                        "estado": estado_inicial,
+                        "items": st.session_state.items_factura_directa
                     }
-                    supabase.table("facturas").insert(data_factura).execute()
-                    st.success(f"Registro '{num_final}' guardado por un total de {total_calculado:,.2f} €.")
+                    try:
+                        supabase.table("facturas").insert(data_factura).execute()
+                    except Exception:
+                        data_factura.pop("items", None)
+                        supabase.table("facturas").insert(data_factura).execute()
+
+                    st.session_state.items_factura_directa = []
+                    st.success(f"Registro '{num_final}' guardado con éxito por {total_calculado:,.2f} €.")
                     st.rerun()
 
     except Exception as err:
@@ -1041,7 +1107,7 @@ elif menu == "➕ Registros / Facturas":
 # ==========================================
 elif menu == "📄 Historial Trabajos":
     st.title("📄 Historial General de Servicios, Proformas y Facturas")
-    st.markdown("Consulta registros y descarga documentos PDF.")
+    st.markdown("Consulta registros y descarga documentos PDF con su emisor correspondiente.")
     st.markdown("---")
     
     try:
@@ -1054,11 +1120,15 @@ elif menu == "📄 Historial Trabajos":
             raw_facturas = res.data
             filas = []
             for item in raw_facturas:
-                es_fac = "Factura Oficial" if item["numero_factura"].startswith("FAC") else "Proforma / Recibo"
+                es_fac = item["numero_factura"].startswith("FAC")
+                tipo_text = "Factura Oficial" if es_fac else "Proforma / Recibo"
+                emisor_text = emisor_fac_nombre if es_fac else emisor_prof_nombre
+                
                 filas.append({
                     "ID": item["id"],
                     "Código": item["numero_factura"],
-                    "Tipo Documento": es_fac,
+                    "Tipo Documento": tipo_text,
+                    "Emisor": emisor_text,
                     "Cliente": item["clientes"]["nombre"] if item.get("clientes") else "Sin Cliente",
                     "Fecha": item["fecha_emision"],
                     "Total (€)": item["total"],
@@ -1083,7 +1153,7 @@ elif menu == "📄 Historial Trabajos":
                 ]
 
             st.dataframe(
-                df_filtered[["Código", "Tipo Documento", "Cliente", "Fecha", "Total (€)", "Estado"]], 
+                df_filtered[["Código", "Tipo Documento", "Emisor", "Cliente", "Fecha", "Total (€)", "Estado"]], 
                 use_container_width=True,
                 height=300
             )
@@ -1109,7 +1179,13 @@ elif menu == "📄 Historial Trabajos":
                 factura_obj = next((f for f in raw_facturas if f["numero_factura"] == factura_sel_pdf), None)
                 
                 if factura_obj:
-                    pdf_data = generar_pdf_documento(factura_obj)
+                    pdf_data = generar_pdf_documento(
+                        registro_info=factura_obj,
+                        nom_padre=emisor_fac_nombre,
+                        nif_padre=emisor_fac_nif,
+                        nom_adrian=emisor_prof_nombre,
+                        nif_adrian=emisor_prof_nif
+                    )
                     st.download_button(
                         label=f"📄 Descargar {factura_sel_pdf}.pdf",
                         data=pdf_data,
