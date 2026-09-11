@@ -116,6 +116,46 @@ def obtener_facturas_seguro():
         return supabase.table("facturas").select("id, numero_factura, fecha_emision, total, estado, clientes(nombre, nif, email, telefono)").order("id", desc=True).execute()
 
 # ==========================================
+# FUNCIONES DE ELIMINACIÓN Y MODAL
+# ==========================================
+def eliminar_factura_bd(factura_id: int, motivo: str):
+    """Elimina la factura en Supabase."""
+    try:
+        supabase.table("facturas").delete().eq("id", factura_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Error al eliminar la factura: {e}")
+        return False
+
+@st.dialog("🗑️ Confirmar eliminación de factura")
+def modal_eliminar_factura(factura):
+    cliente_info = factura.get("clientes") or {}
+    nombre_cliente = cliente_info.get("nombre", "Cliente General")
+    
+    st.warning(f"Está a punto de borrar el registro **{factura.get('numero_factura', 'N/A')}**.")
+    st.write(f"**Cliente:** {nombre_cliente}")
+    st.write(f"**Total:** {factura.get('total', 0):,.2f} €")
+
+    motivo = st.text_area(
+        "Motivo de la eliminación (obligatorio):",
+        placeholder="Ej: Documento duplicado / Error en el cliente / Cancelación de servicio..."
+    )
+
+    col_conf, col_canc = st.columns(2)
+    with col_conf:
+        if st.button("Confirmar Borrado", type="primary", use_container_width=True):
+            if not motivo.strip():
+                st.error("Por favor, escribe un motivo antes de continuar.")
+            else:
+                if eliminar_factura_bd(factura["id"], motivo):
+                    st.success("Registro eliminado correctamente.")
+                    st.rerun()
+
+    with col_canc:
+        if st.button("Cancelar", use_container_width=True):
+            st.rerun()
+
+# ==========================================
 # OBTENER LOGO FIJO DEL PROYECTO
 # ==========================================
 def obtener_logo_path():
@@ -401,7 +441,7 @@ def generar_pdf_presupuesto(cliente_nombre, cliente_nif, items, num_presupuesto,
     return buffer.getvalue()
 
 # ==========================================
-# NAVEGACIÓN LATERAL (SIN CARGADOR DE LOGO)
+# NAVEGACIÓN LATERAL
 # ==========================================
 st.sidebar.markdown("<h2 style='text-align: center; color: #818cf8;'>🔊 Suárez Sound</h2>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
@@ -779,7 +819,7 @@ elif menu == "📋 Presupuestos":
                             except Exception:
                                 supabase.table("presupuestos").insert(data_pres).execute()
                                 
-                            st.success(f"¡Presupuesto guardado!")
+                            st.success("¡Presupuesto guardado!")
 
                         st.download_button(
                             label="📄 Descargar Presupuesto en PDF",
@@ -1117,7 +1157,7 @@ elif menu == "➕ Registros / Facturas":
 # ==========================================
 elif menu == "📄 Historial Trabajos":
     st.title("📄 Historial General de Servicios, Proformas y Facturas")
-    st.markdown("Consulta registros y descarga documentos PDF con su emisor correspondiente.")
+    st.markdown("Consulta registros, gestiona estados, descarga documentos PDF o elimina registros.")
     st.markdown("---")
     
     try:
@@ -1167,33 +1207,63 @@ elif menu == "📄 Historial Trabajos":
             
             st.markdown(f"**Total acumulado en selección:** `{df_filtered['Total (€)'].sum():,.2f} €`")
             st.markdown("---")
+
+            # Mapeo de la lista filtrada para los selectbox
+            opciones_select = {
+                f"{row['Código']} - {row['Cliente']} ({row['Total (€)']:,.2f} €)": row["Código"]
+                for _, row in df_filtered.iterrows()
+            }
             
-            col_m1, col_m2 = st.columns(2)
+            col_m1, col_m2, col_m3 = st.columns([1.5, 1.5, 1])
             
             with col_m1:
                 st.subheader("⚡ Estado de Pago")
-                factura_sel_estado = st.selectbox("Seleccionar Registro", df_all["Código"].tolist(), key="sel_est")
+                factura_sel_estado = st.selectbox(
+                    "Seleccionar Registro (Estado)", 
+                    options=list(opciones_select.keys()) if opciones_select else ["Sin registros"], 
+                    key="sel_est"
+                )
                 nuevo_estado = st.selectbox("Nuevo Estado", ["Cobrada", "Pendiente"])
-                if st.button("Actualizar Estado", use_container_width=True):
-                    supabase.table("facturas").update({"estado": nuevo_estado}).eq("numero_factura", factura_sel_estado).execute()
-                    st.success(f"Registro {factura_sel_estado} actualizado a '{nuevo_estado}'.")
+                if opciones_select and st.button("Actualizar Estado", use_container_width=True):
+                    code_est = opciones_select[factura_sel_estado]
+                    supabase.table("facturas").update({"estado": nuevo_estado}).eq("numero_factura", code_est).execute()
+                    st.success(f"Registro {code_est} actualizado a '{nuevo_estado}'.")
                     st.rerun()
 
             with col_m2:
                 st.subheader("📥 Generar Documento PDF")
-                factura_sel_pdf = st.selectbox("Seleccionar para Descargar PDF", df_all["Código"].tolist(), key="sel_pdf")
-                
-                factura_obj = next((f for f in raw_facturas if f["numero_factura"] == factura_sel_pdf), None)
-                
-                if factura_obj:
-                    pdf_data = generar_pdf_documento(registro_info=factura_obj)
-                    st.download_button(
-                        label=f"📄 Descargar {factura_sel_pdf}.pdf",
-                        data=pdf_data,
-                        file_name=f"{factura_sel_pdf}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
+                factura_sel_pdf = st.selectbox(
+                    "Seleccionar para PDF", 
+                    options=list(opciones_select.keys()) if opciones_select else ["Sin registros"], 
+                    key="sel_pdf"
+                )
+                if opciones_select:
+                    code_pdf = opciones_select[factura_sel_pdf]
+                    factura_obj = next((f for f in raw_facturas if f["numero_factura"] == code_pdf), None)
+                    if factura_obj:
+                        pdf_data = generar_pdf_documento(registro_info=factura_obj)
+                        st.download_button(
+                            label=f"📄 Descargar {code_pdf}.pdf",
+                            data=pdf_data,
+                            file_name=f"{code_pdf}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+
+            with col_m3:
+                st.subheader("🗑️ Eliminar")
+                factura_sel_del = st.selectbox(
+                    "Seleccionar para Borrar", 
+                    options=list(opciones_select.keys()) if opciones_select else ["Sin registros"], 
+                    key="sel_del"
+                )
+                st.write("") # Espaciado de alineación
+                if opciones_select and st.button("🗑️ Borrar Factura", type="primary", use_container_width=True):
+                    code_del = opciones_select[factura_sel_del]
+                    factura_obj_del = next((f for f in raw_facturas if f["numero_factura"] == code_del), None)
+                    if factura_obj_del:
+                        modal_eliminar_factura(factura_obj_del)
+
         else:
             st.info("No hay registros todavía.")
     except Exception as err:
